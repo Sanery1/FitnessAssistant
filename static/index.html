@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>健身 AI 助手</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <span class="logo-icon">💪</span>
+                    <span class="logo-text">健身助手</span>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" data-page="chat">
+                    <span class="nav-icon">💬</span>
+                    <span>对话</span>
+                </a>
+                <a href="#" class="nav-item" data-page="workout">
+                    <span class="nav-icon">🏋️</span>
+                    <span>训练计划</span>
+                </a>
+                <a href="#" class="nav-item" data-page="nutrition">
+                    <span class="nav-icon">🥗</span>
+                    <span>营养分析</span>
+                </a>
+                <a href="#" class="nav-item" data-page="body">
+                    <span class="nav-icon">📊</span>
+                    <span>身体数据</span>
+                </a>
+                <a href="#" class="nav-item" data-page="settings">
+                    <span class="nav-icon">⚙️</span>
+                    <span>设置</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <div class="user-avatar">👤</div>
+                    <div class="user-name">用户</div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 对话页面 -->
+            <div id="page-chat" class="page active">
+                <div class="page-header">
+                    <h1>AI 健身教练</h1>
+                    <p>有什么健身问题都可以问我</p>
+                </div>
+
+                <div class="chat-container">
+                    <div id="chat-messages" class="chat-messages">
+                        <div class="message assistant">
+                            <div class="message-avatar">💪</div>
+                            <div class="message-content">
+                                <p>你好！我是你的健身 AI 助手。我可以帮你：</p>
+                                <ul>
+                                    <li>制定个性化训练计划</li>
+                                    <li>提供动作指导和纠正建议</li>
+                                    <li>计算热量和营养需求</li>
+                                    <li>追踪健身进度</li>
+                                </ul>
+                                <p>有什么想了解的吗？</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="chat-input-container">
+                        <div class="quick-actions">
+                            <button class="quick-btn" data-msg="帮我制定一个减脂训练计划">制定训练计划</button>
+                            <button class="quick-btn" data-msg="深蹲的正确姿势是什么？">动作指导</button>
+                            <button class="quick-btn" data-msg="帮我计算每日热量需求">热量计算</button>
+                            <button class="quick-btn" data-msg="分析我的健身进度">进度分析</button>
+                        </div>
+                        <div class="chat-input-wrapper">
+                            <textarea id="chat-input" placeholder="输入你的问题..." rows="1"></textarea>
+                            <button id="send-btn" class="send-btn">
+                                <span>发送</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 训练计划页面 -->
+            <div id="page-workout" class="page">
+                <div class="page-header">
+                    <h1>训练计划生成器</h1>
+                    <p>根据你的目标生成个性化训练计划</p>
+                </div>
+
+                <div class="form-container">
+                    <form id="workout-form" class="styled-form">
+                        <div class="form-group">
+                            <label>训练目标</label>
+                            <select name="goal" required>
+                                <option value="减脂">减脂</option>
+                                <option value="增肌">增肌</option>
+                                <option value="保持">保持</option>
+                                <option value="提升耐力">提升耐力</option>
+                                <option value="提升力量">提升力量</option>
+                                <option value="综合健身">综合健身</option>
+                            </select>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>健身水平</label>
+                                <select name="level" required>
+                                    <option value="初学者">初学者</option>
+                                    <option value="中级">中级</option>
+                                    <option value="高级">高级</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>每周训练天数</label>
+                                <select name="days" required>
+                                    <option value="3">3 天</option>
+                                    <option value="4">4 天</option>
+                                    <option value="5">5 天</option>
+                                    <option value="6">6 天</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>每天训练时长 (分钟)</label>
+                            <input type="number" name="duration" value="60" min="30" max="120" required>
+                        </div>
+
+                        <button type="submit" class="submit-btn">生成训练计划</button>
+                    </form>
+
+                    <div id="workout-result" class="result-container hidden">
+                        <h3>你的训练计划</h3>
+                        <div id="workout-plan-content"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 营养分析页面 -->
+            <div id="page-nutrition" class="page">
+                <div class="page-header">
+                    <h1>营养分析</h1>
+                    <p>计算你的热量和营养需求</p>
+                </div>
+
+                <div class="form-container">
+                    <form id="nutrition-form" class="styled-form">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>性别</label>
+                                <select name="gender" required>
+                                    <option value="男">男</option>
+                                    <option value="女">女</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>年龄</label>
+                                <input type="number" name="age" value="25" min="10" max="100" required>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>身高 (cm)</label>
+                                <input type="number" name="height" value="170" required>
+                            </div>
+                            <div class="form-group">
+                                <label>体重 (kg)</label>
+                                <input type="number" name="weight" value="70" required>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>活动水平</label>
+                                <select name="activity" required>
+                                    <option value="久坐">久坐 (几乎不运动)</option>
+                                    <option value="轻度活动">轻度活动 (每周1-2次)</option>
+                                    <option value="中度活动" selected>中度活动 (每周3-4次)</option>
+                                    <option value="高度活动">高度活动 (每周5-6次)</option>
+                                    <option value="极高活动">极高活动 (每天运动)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>目标</label>
+                                <select name="goal" required>
+                                    <option value="减脂">减脂</option>
+                                    <option value="增肌">增肌</option>
+                                    <option value="保持">保持</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="submit-btn">计算营养需求</button>
+                    </form>
+
+                    <div id="nutrition-result" class="result-container hidden">
+                        <h3>你的营养方案</h3>
+                        <div id="nutrition-content"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 身体数据页面 -->
+            <div id="page-body" class="page">
+                <div class="page-header">
+                    <h1>身体数据</h1>
+                    <p>记录和追踪你的身体变化</p>
+                </div>
+
+                <div class="body-stats">
+                    <div class="stat-card">
+                        <div class="stat-icon">📏</div>
+                        <div class="stat-info">
+                            <span class="stat-label">BMI</span>
+                            <span id="bmi-value" class="stat-value">--</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">⚖️</div>
+                        <div class="stat-info">
+                            <span class="stat-label">体重</span>
+                            <span id="weight-value" class="stat-value">-- kg</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">🎯</div>
+                        <div class="stat-info">
+                            <span class="stat-label">目标</span>
+                            <span id="goal-value" class="stat-value">-- kg</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-container">
+                    <form id="body-form" class="styled-form">
+                        <h3>计算 BMI</h3>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>身高 (cm)</label>
+                                <input type="number" name="height" value="170" required>
+                            </div>
+                            <div class="form-group">
+                                <label>体重 (kg)</label>
+                                <input type="number" name="weight" value="70" required>
+                            </div>
+                        </div>
+                        <button type="submit" class="submit-btn">计算 BMI</button>
+                    </form>
+
+                    <div id="body-result" class="result-container hidden">
+                        <div id="body-content"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 设置页面 -->
+            <div id="page-settings" class="page">
+                <div class="page-header">
+                    <h1>设置</h1>
+                    <p>配置你的个人信息</p>
+                </div>
+
+                <div class="form-container">
+                    <form id="settings-form" class="styled-form">
+                        <div class="form-group">
+                            <label>用户名</label>
+                            <input type="text" name="name" placeholder="输入你的名字">
+                        </div>
+
+                        <div class="form-group">
+                            <label>健身目标</label>
+                            <select name="fitness_goal">
+                                <option value="减脂">减脂</option>
+                                <option value="增肌">增肌</option>
+                                <option value="保持">保持</option>
+                                <option value="提升力量">提升力量</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>每周训练天数</label>
+                            <input type="number" name="training_days" value="3" min="1" max="7">
+                        </div>
+
+                        <button type="submit" class="submit-btn">保存设置</button>
+                    </form>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

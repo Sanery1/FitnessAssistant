@@ -1,0 +1,300 @@
+"""
+RAG Knowledge Base
+
+向量检索增强生成，为 AI 提供专业知识支持。
+"""
+import json
+import os
+from typing import List, Dict, Any, Optional, Tuple
+from pathlib import Path
+import numpy as np
+
+
+class SimpleEmbedding:
+    """简单的文本嵌入 (基于关键词的向量表示)
+
+    生产环境应使用:
+    - OpenAI embeddings
+    - 本地模型如 sentence-transformers
+    """
+
+    def __init__(self, dim: int = 384):
+        self.dim = dim
+        # 简单的特征词映射
+        self.feature_words = [
+            "训练", "健身", "力量", "有氧", "肌肉", "胸部", "背部", "腿部", "肩部", "手臂",
+            "深蹲", "卧推", "硬拉", "引体", "俯卧撑", "划船", "推举",
+            "营养", "蛋白质", "碳水", "脂肪", "热量", "饮食", "减脂", "增肌",
+            "恢复", "休息", "睡眠", "拉伸", "热身", "放松",
+            "强度", "次数", "组数", "重量", "频率", "周期",
+            "初学者", "中级", "高级", "专家",
+            "胸部", "背部", "腿部", "肩部", "手臂", "核心", "全身"
+        ]
+        self.word_to_idx = {w: i for i, w in enumerate(self.feature_words)}
+
+    def encode(self, text: str) -> np.ndarray:
+        """编码文本为向量"""
+        vector = np.zeros(self.dim)
+        words = text.lower()
+
+        for word, idx in self.word_to_idx.items():
+            if word in words:
+                # 简单的词频特征
+                count = words.count(word)
+                vector[idx] = count
+
+        # 归一化
+        norm = np.linalg.norm(vector)
+        if norm > 0:
+            vector = vector / norm
+
+        return vector.astype(np.float32)
+
+    def encode_batch(self, texts: List[str]) -> np.ndarray:
+        """批量编码"""
+        return np.array([self.encode(t) for t in texts])
+
+
+class KnowledgeDocument:
+    """知识文档"""
+
+    def __init__(
+        self,
+        id: str,
+        content: str,
+        metadata: Dict[str, Any] = None,
+        embedding: np.ndarray = None
+    ):
+        self.id = id
+        self.content = content
+        self.metadata = metadata or {}
+        self.embedding = embedding
+
+
+class VectorStore:
+    """向量存储 (基于 NumPy 的简单实现)"""
+
+    def __init__(self, embedding_dim: int = 384):
+        self.embedding_dim = embedding_dim
+        self.documents: List[KnowledgeDocument] = []
+        self.embeddings: np.ndarray = None
+
+    def add(self, docs: List[KnowledgeDocument]) -> None:
+        """添加文档"""
+        self.documents.extend(docs)
+
+        # 更新嵌入矩阵
+        embeddings = [d.embedding for d in docs if d.embedding is not None]
+        if embeddings:
+            if self.embeddings is None:
+                self.embeddings = np.array(embeddings)
+            else:
+                self.embeddings = np.vstack([self.embeddings, np.array(embeddings)])
+
+    def search(self, query_embedding: np.ndarray, k: int = 5) -> List[Tuple[KnowledgeDocument, float]]:
+        """搜索最相似的文档"""
+        if self.embeddings is None or len(self.documents) == 0:
+            return []
+
+        # 计算余弦相似度
+        similarities = np.dot(self.embeddings, query_embedding)
+
+        # 获取 top-k
+        top_indices = np.argsort(similarities)[::-1][:k]
+
+        results = []
+        for idx in top_indices:
+            doc = self.documents[idx]
+            score = float(similarities[idx])
+            results.append((doc, score))
+
+        return results
+
+    def clear(self) -> None:
+        """清空"""
+        self.documents = []
+        self.embeddings = None
+
+    def save(self, path: str) -> None:
+        """保存到文件"""
+        data = {
+            "documents": [
+                {"id": d.id, "content": d.content, "metadata": d.metadata}
+                for d in self.documents
+            ],
+            "embeddings": self.embeddings.tolist() if self.embeddings is not None else None
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+
+    def load(self, path: str) -> None:
+        """从文件加载"""
+        if not os.path.exists(path):
+            return
+
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        self.documents = [
+            KnowledgeDocument(id=d["id"], content=d["content"], metadata=d.get("metadata", {}))
+            for d in data.get("documents", [])
+        ]
+
+        if data.get("embeddings") is not None:
+            self.embeddings = np.array(data["embeddings"])
+            # 将嵌入关联到文档
+            for i, doc in enumerate(self.documents):
+                if i < len(self.embeddings):
+                    doc.embedding = self.embeddings[i]
+
+
+class KnowledgeBase:
+    """知识库"""
+
+    def __init__(self, storage_path: str = "data/knowledge"):
+        self.storage_path = Path(storage_path)
+        self.storage_path.mkdir(parents=True, exist_ok=True)
+
+        self.embedding_model = SimpleEmbedding()
+        self.hybrid_index = HybridIndexManager(self.embedding_model.dim)
+
+        # 尝试加载已有数据
+        self.hybrid_index.load(str(self.storage_path / \"hybrid_index.json\"))
+
+    def add_document(
+        self,
+        content: str,
+        metadata: Dict[str, Any] = None,
+        doc_id: str = None
+    ) -> None:
+        """添加文档"""
+        if doc_id is None:
+            doc_id = f"doc_{len(self.vector_store.documents)}"
+
+        embedding = self.embedding_model.encode(content)
+        doc = KnowledgeDocument(
+            id=doc_id,
+            content=content,
+            metadata=metadata,
+            embedding=embedding
+        )
+
+        self.hybrid_index.add_document([doc])
+        self._save()
+
+    def add_documents(self, documents: List[Dict[str, Any]]) -> None:
+        """批量添加文档"""
+        docs = []
+        for i, d in enumerate(documents):
+            content = d.get("content", "")
+            metadata = d.get("metadata", {})
+            doc_id = d.get("id", f"doc_{len(self.vector_store.documents) + i}")
+
+            embedding = self.embedding_model.encode(content)
+            docs.append(KnowledgeDocument(
+                id=doc_id,
+                content=content,
+                metadata=metadata,
+                embedding=embedding
+            ))
+
+        self.hybrid_index.add_document(docs)
+        self._save()
+
+    def search(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
+        """搜索相关知识"""
+        results = self.hybrid_index.search(query, k)
+
+        return [
+            {
+                "content": doc.content,
+                "metadata": doc.metadata,
+                "score": score
+            }
+            for doc, score in results
+        ]
+
+    def get_context_for_query(self, query: str, max_tokens: int = 2000) -> str:
+        """获取查询的上下文 (用于 RAG)"""
+        results = self.search(query, k=3)
+
+        if not results:
+            return ""
+
+        context_parts = ["相关知识:"]
+        for i, r in enumerate(results, 1):
+            context_parts.append(f"\n{i}. {r['content']}")
+
+        return "\n".join(context_parts)
+
+    def _save(self) -> None:
+        """保存"""
+        self.hybrid_index.save(str(self.storage_path / \"hybrid_index.json\"))
+
+
+# 初始化健身知识
+def init_fitness_knowledge(kb: KnowledgeBase) -> None:
+    """初始化健身知识库"""
+    documents = [
+        # 训练原则
+        {
+            "id": "training_principle_1",
+            "content": "渐进超负荷原则：训练强度需要逐渐增加才能持续获得进步。可以通过增加重量、次数、组数或减少休息时间来实现。",
+            "metadata": {"category": "训练原则", "topic": "渐进超负荷"}
+        },
+        {
+            "id": "training_principle_2",
+            "content": "特异性原则：训练效果具有特异性，想提高某项能力就需要进行相关训练。想增肌就做力量训练，想提高耐力就做有氧训练。",
+            "metadata": {"category": "训练原则", "topic": "特异性"}
+        },
+        {
+            "id": "training_principle_3",
+            "content": "恢复原则：肌肉在训练后需要48-72小时恢复。过度训练会导致表现下降和受伤风险增加。充足的睡眠和营养对恢复至关重要。",
+            "metadata": {"category": "训练原则", "topic": "恢复"}
+        },
+
+        # 动作知识
+        {
+            "id": "exercise_squat",
+            "content": "深蹲是下肢训练之王，主要锻炼股四头肌、臀大肌和腘绳肌。正确姿势：双脚与肩同宽，核心收紧，先屈髋后屈膝，膝盖与脚尖方向一致，下蹲至大腿与地面平行。",
+            "metadata": {"category": "动作", "name": "深蹲", "muscles": ["腿部", "臀部"]}
+        },
+        {
+            "id": "exercise_bench",
+            "content": "卧推是上肢推动作的典型代表，主要锻炼胸大肌、三角肌前束和肱三头肌。正确姿势：双手略宽于肩，肩胛骨收紧，下放至胸部，推起时保持控制。",
+            "metadata": {"category": "动作", "name": "卧推", "muscles": ["胸部", "肩部", "手臂"]}
+        },
+        {
+            "id": "exercise_deadlift",
+            "content": "硬拉是全身力量训练的基础动作，主要锻炼背部、臀部和腿部。正确姿势：杠铃在脚正上方，屈髋屈膝握住杠铃，背部挺直，蹬地伸髋伸膝站起。",
+            "metadata": {"category": "动作", "name": "硬拉", "muscles": ["背部", "腿部", "臀部"]}
+        },
+
+        # 营养知识
+        {
+            "id": "nutrition_protein",
+            "content": "蛋白质是肌肉合成的基础。力量训练者建议每日摄入1.6-2.2g/kg体重的蛋白质。优质蛋白来源：鸡胸肉、鸡蛋、牛奶、鱼类、豆制品。",
+            "metadata": {"category": "营养", "topic": "蛋白质"}
+        },
+        {
+            "id": "nutrition_carbs",
+            "content": "碳水化合物是训练的主要能量来源。训练前2-3小时摄入复杂碳水，训练后30分钟内补充简单碳水有助于恢复。减脂期可适当降低碳水摄入。",
+            "metadata": {"category": "营养", "topic": "碳水化合物"}
+        },
+        {
+            "id": "nutrition_timing",
+            "content": "训练前1-2小时进食，以碳水为主；训练后30-60分钟补充蛋白质和碳水，比例为1:2到1:4；睡前可摄入缓释蛋白如酪蛋白。",
+            "metadata": {"category": "营养", "topic": "进食时机"}
+        },
+
+        # 初学者建议
+        {
+            "id": "beginner_tips",
+            "content": "初学者建议：从全身训练开始，每周2-3次；先学习正确动作，再增加重量；每次训练控制在45-60分钟；保持训练日记记录进步；给自己3-6个月建立习惯。",
+            "metadata": {"category": "建议", "level": "初学者"}
+        }
+    ]
+
+    # 检查是否已有数据
+    if len(kb.hybrid_index.documents) == 0:
+        kb.add_documents(documents)
