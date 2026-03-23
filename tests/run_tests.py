@@ -1,4 +1,4 @@
-"""
+﻿"""
 Run All Tests
 """
 import sys
@@ -11,6 +11,7 @@ from test_memory import run_all_tests as run_memory_tests
 from test_workflow import run_all_tests as run_workflow_tests
 from test_chat import run_all_tests as run_chat_tests
 from test_api_integration import run_all_tests as run_api_integration_tests
+from test_performance_baseline import run_all_tests as run_performance_tests
 
 
 def main():
@@ -35,6 +36,9 @@ def main():
 
     # API 集成测试
     run_api_integration_tests()
+
+    # 性能基线测试
+    run_performance_tests()
 
     print("\n" + "=" * 60)
     print("All Tests Passed! Project Build Successful!")
