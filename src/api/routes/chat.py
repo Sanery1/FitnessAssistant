@@ -1,6 +1,7 @@
 """
 FastAPI Routes - Chat
 """
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -17,17 +18,18 @@ from ...config import settings
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 # 全局实例 (生产环境应使用依赖注入)
-_memory_manager: Optional[MemoryManager] = None
+_memory_managers: Dict[str, MemoryManager] = {}
 _llm_client: Optional[LLMClient] = None
-_orchestrator: Optional[OrchestratorAgent] = None
+_orchestrators: Dict[str, OrchestratorAgent] = {}
 _knowledge_base: Optional[KnowledgeBase] = None
 
 
-def get_memory() -> MemoryManager:
-    global _memory_manager
-    if _memory_manager is None:
-        _memory_manager = MemoryManager(settings.memory_path)
-    return _memory_manager
+def get_memory(user_id: str = "default") -> MemoryManager:
+    manager = _memory_managers.get(user_id)
+    if manager is None:
+        manager = MemoryManager(settings.memory_path)
+        _memory_managers[user_id] = manager
+    return manager
 
 
 def get_llm() -> LLMClient:
@@ -52,14 +54,15 @@ def get_knowledge() -> KnowledgeBase:
     return _knowledge_base
 
 
-def get_orchestrator() -> OrchestratorAgent:
-    global _orchestrator
-    if _orchestrator is None:
-        _orchestrator = OrchestratorAgent(
+def get_orchestrator(user_id: str = "default") -> OrchestratorAgent:
+    orchestrator = _orchestrators.get(user_id)
+    if orchestrator is None:
+        orchestrator = OrchestratorAgent(
             llm_client=get_llm(),
-            memory=get_memory()
+            memory=get_memory(user_id)
         )
-    return _orchestrator
+        _orchestrators[user_id] = orchestrator
+    return orchestrator
 
 
 # 请求模型
@@ -84,14 +87,19 @@ class StreamRequest(BaseModel):
 async def chat_message(request: ChatRequest):
     """发送消息并获取回复"""
     try:
-        orchestrator = get_orchestrator()
-        memory = get_memory()
+        user_id = request.user_id or "default"
+        orchestrator = get_orchestrator(user_id)
+        memory = get_memory(user_id)
 
         # 获取用户上下文
-        user_context = memory.get_user_context(request.user_id)
+        user_context = memory.get_user_context(user_id)
 
         # 处理消息
-        response = orchestrator.process(request.message, user_context)
+        response = await asyncio.to_thread(
+            orchestrator.process,
+            request.message,
+            user_context
+        )
 
         # 保存对话
         memory.add_message("user", request.message)
@@ -99,7 +107,7 @@ async def chat_message(request: ChatRequest):
 
         return ChatResponse(
             content=response.content,
-            user_id=request.user_id,
+            user_id=user_id,
             done=response.done
         )
 
@@ -128,7 +136,7 @@ async def chat_stream(request: StreamRequest):
 @router.get("/history/{user_id}")
 async def get_history(user_id: str, limit: int = 20):
     """获取对话历史"""
-    memory = get_memory()
+    memory = get_memory(user_id)
     messages = memory.get_conversation(limit)
     return {"user_id": user_id, "messages": messages}
 
@@ -136,7 +144,7 @@ async def get_history(user_id: str, limit: int = 20):
 @router.delete("/history/{user_id}")
 async def clear_history(user_id: str):
     """清空对话历史"""
-    memory = get_memory()
+    memory = get_memory(user_id)
     memory.clear_session()
     return {"success": True, "message": "对话历史已清空"}
 

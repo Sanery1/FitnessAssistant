@@ -1,8 +1,7 @@
 """
 Configuration
 """
-import os
-from typing import Optional
+from typing import List, Optional
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 
@@ -14,13 +13,13 @@ class Settings(BaseSettings):
 
     # App
     app_name: str = "Fitness AI Assistant"
-    debug: bool = True
+    debug: bool = False
     version: str = "0.1.0"
 
     # LLM
     llm_api_key: Optional[str] = None
-    llm_base_url: str = "https://aigw-gzgy2.cucloud.cn:8443/v1"
-    llm_model: str = "glm-5"
+    llm_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
+    llm_model: str = "glm-4-plus"
     llm_provider: str = "glm"
 
     # Storage
@@ -30,6 +29,22 @@ class Settings(BaseSettings):
 
     # API
     api_prefix: str = "/api"
+    cors_allow_origins: str = "http://localhost:8000,http://127.0.0.1:8000"
+    cors_allow_credentials: bool = True
+    cors_allow_methods: str = "GET,POST,PUT,DELETE,OPTIONS"
+    cors_allow_headers: str = "*"
+
+    @property
+    def cors_origins(self) -> List[str]:
+        return [item.strip() for item in self.cors_allow_origins.split(",") if item.strip()]
+
+    @property
+    def cors_methods(self) -> List[str]:
+        return [item.strip().upper() for item in self.cors_allow_methods.split(",") if item.strip()]
+
+    @property
+    def cors_headers(self) -> List[str]:
+        return [item.strip() for item in self.cors_allow_headers.split(",") if item.strip()]
 
     class Config:
         env_file = ".env"
@@ -38,10 +53,5 @@ class Settings(BaseSettings):
         env_prefix = ""
 
 
-# 从环境变量获取配置
-settings = Settings(
-    llm_api_key=os.getenv("LLM_API_KEY"),
-    llm_base_url=os.getenv("LLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4"),
-    llm_model=os.getenv("LLM_MODEL", "glm-4-plus"),
-    llm_provider=os.getenv("LLM_PROVIDER", "glm"),
-)
+# 统一从 BaseSettings + .env 读取配置
+settings = Settings()

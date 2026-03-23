@@ -18,6 +18,15 @@ const elements = {
     pages: document.querySelectorAll('.page')
 };
 
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 // ==================== 页面导航 ====================
 
 function initNavigation() {
@@ -109,15 +118,22 @@ function addMessage(role, content, isLoading = false) {
 
     const avatar = role === 'user' ? '👤' : '💪';
 
-    msgEl.innerHTML = `
-        <div class="message-avatar">${avatar}</div>
-        <div class="message-content">
-            <p>${content}</p>
-        </div>
-    `;
+    const avatarEl = document.createElement('div');
+    avatarEl.className = 'message-avatar';
+    avatarEl.textContent = avatar;
+
+    const contentEl = document.createElement('div');
+    contentEl.className = 'message-content';
+
+    const paragraphEl = document.createElement('p');
+    paragraphEl.textContent = String(content ?? '');
+    contentEl.appendChild(paragraphEl);
+
+    msgEl.appendChild(avatarEl);
+    msgEl.appendChild(contentEl);
 
     if (isLoading) {
-        msgEl.querySelector('.message-content').classList.add('loading');
+        contentEl.classList.add('loading');
     }
 
     elements.chatMessages.appendChild(msgEl);
@@ -158,7 +174,7 @@ function initWorkout() {
             renderWorkoutPlan(data);
 
         } catch (error) {
-            contentDiv.innerHTML = `<p>生成失败：${error.message}</p>`;
+            contentDiv.innerHTML = `<p>生成失败：${escapeHtml(error.message)}</p>`;
         }
     });
 }
@@ -166,24 +182,24 @@ function initWorkout() {
 function renderWorkoutPlan(plan) {
     const contentDiv = document.getElementById('workout-plan-content');
 
-    let html = `<p><strong>计划名称：</strong>${plan.name}</p>`;
-    html += `<p><strong>持续周数：</strong>${plan.duration_weeks} 周</p>`;
-    html += `<p><strong>每周训练：</strong>${plan.sessions_per_week} 次</p>`;
+    let html = `<p><strong>计划名称：</strong>${escapeHtml(plan.name)}</p>`;
+    html += `<p><strong>持续周数：</strong>${escapeHtml(plan.duration_weeks)} 周</p>`;
+    html += `<p><strong>每周训练：</strong>${escapeHtml(plan.sessions_per_week)} 次</p>`;
 
     plan.sessions.forEach(session => {
         html += `
             <div class="session-card">
-                <h4>第 ${session.day} 天 - ${session.name}</h4>
-                <p>时长：${session.duration_minutes} 分钟</p>
-                <p>目标肌群：${session.muscles.join(', ')}</p>
+                <h4>第 ${escapeHtml(session.day)} 天 - ${escapeHtml(session.name)}</h4>
+                <p>时长：${escapeHtml(session.duration_minutes)} 分钟</p>
+                <p>目标肌群：${escapeHtml((session.muscles || []).join(', '))}</p>
                 <h5>动作列表：</h5>
         `;
 
         session.exercises.forEach(ex => {
             html += `
                 <div class="exercise-item">
-                    <span>${ex.name}</span>
-                    <span>${ex.sets} 组 × ${ex.reps}</span>
+                    <span>${escapeHtml(ex.name)}</span>
+                    <span>${escapeHtml(ex.sets)} 组 × ${escapeHtml(ex.reps)}</span>
                 </div>
             `;
         });
@@ -228,7 +244,7 @@ function initNutrition() {
             renderNutritionResult(data);
 
         } catch (error) {
-            contentDiv.innerHTML = `<p>计算失败：${error.message}</p>`;
+            contentDiv.innerHTML = `<p>计算失败：${escapeHtml(error.message)}</p>`;
         }
     });
 }
@@ -239,34 +255,34 @@ function renderNutritionResult(data) {
     let html = `
         <div class="macros-display">
             <div class="macro-item">
-                <div class="macro-value">${data.target_calories}</div>
+                <div class="macro-value">${escapeHtml(data.target_calories)}</div>
                 <div class="macro-label">每日热量 (kcal)</div>
             </div>
             <div class="macro-item">
-                <div class="macro-value">${data.tdee}</div>
+                <div class="macro-value">${escapeHtml(data.tdee)}</div>
                 <div class="macro-label">每日消耗 (TDEE)</div>
             </div>
             <div class="macro-item">
-                <div class="macro-value">${data.bmr}</div>
+                <div class="macro-value">${escapeHtml(data.bmr)}</div>
                 <div class="macro-label">基础代谢 (BMR)</div>
             </div>
         </div>
 
         <div class="macros-display">
             <div class="macro-item">
-                <div class="macro-value">${data.macros.protein.grams}g</div>
+                <div class="macro-value">${escapeHtml(data.macros.protein.grams)}g</div>
                 <div class="macro-label">蛋白质</div>
-                <div class="macro-grams">${data.macros.protein.calories} kcal</div>
+                <div class="macro-grams">${escapeHtml(data.macros.protein.calories)} kcal</div>
             </div>
             <div class="macro-item">
-                <div class="macro-value">${data.macros.carbs.grams}g</div>
+                <div class="macro-value">${escapeHtml(data.macros.carbs.grams)}g</div>
                 <div class="macro-label">碳水化合物</div>
-                <div class="macro-grams">${data.macros.carbs.calories} kcal</div>
+                <div class="macro-grams">${escapeHtml(data.macros.carbs.calories)} kcal</div>
             </div>
             <div class="macro-item">
-                <div class="macro-value">${data.macros.fat.grams}g</div>
+                <div class="macro-value">${escapeHtml(data.macros.fat.grams)}g</div>
                 <div class="macro-label">脂肪</div>
-                <div class="macro-grams">${data.macros.fat.calories} kcal</div>
+                <div class="macro-grams">${escapeHtml(data.macros.fat.calories)} kcal</div>
             </div>
         </div>
 
@@ -274,8 +290,8 @@ function renderNutritionResult(data) {
         <ul>
     `;
 
-    data.tips.forEach(tip => {
-        html += `<li>${tip}</li>`;
+    (data.tips || []).forEach(tip => {
+        html += `<li>${escapeHtml(tip)}</li>`;
     });
 
     html += '</ul>';
@@ -312,7 +328,7 @@ function initBodyData() {
             renderBodyResult(data);
 
         } catch (error) {
-            contentDiv.innerHTML = `<p>计算失败：${error.message}</p>`;
+            contentDiv.innerHTML = `<p>计算失败：${escapeHtml(error.message)}</p>`;
         }
     });
 }
@@ -321,27 +337,27 @@ function renderBodyResult(data) {
     const contentDiv = document.getElementById('body-content');
 
     // 更新统计卡片
-    document.getElementById('bmi-value').textContent = data.bmi;
+    document.getElementById('bmi-value').textContent = String(data.bmi ?? '--');
     document.getElementById('weight-value').textContent = `${data.ideal_weight_range.min}-${data.ideal_weight_range.max} kg`;
 
     let html = `
         <div class="macros-display">
             <div class="macro-item">
-                <div class="macro-value">${data.bmi}</div>
+                <div class="macro-value">${escapeHtml(data.bmi)}</div>
                 <div class="macro-label">BMI</div>
             </div>
             <div class="macro-item">
-                <div class="macro-value">${data.category}</div>
+                <div class="macro-value">${escapeHtml(data.category)}</div>
                 <div class="macro-label">体型分类</div>
             </div>
             <div class="macro-item">
-                <div class="macro-value">${data.ideal_weight_range.min}-${data.ideal_weight_range.max}</div>
+                <div class="macro-value">${escapeHtml(data.ideal_weight_range.min)}-${escapeHtml(data.ideal_weight_range.max)}</div>
                 <div class="macro-label">理想体重 (kg)</div>
             </div>
         </div>
 
-        <p><strong>健康建议：</strong>${data.advice}</p>
-        <p><strong>健康风险：</strong>${data.health_risk}</p>
+        <p><strong>健康建议：</strong>${escapeHtml(data.advice)}</p>
+        <p><strong>健康风险：</strong>${escapeHtml(data.health_risk)}</p>
     `;
 
     contentDiv.innerHTML = html;

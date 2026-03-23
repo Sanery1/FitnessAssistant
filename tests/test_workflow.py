@@ -3,6 +3,7 @@ Tests for Workflow System
 """
 import sys
 import asyncio
+import inspect
 sys.path.insert(0, ".")
 
 from src.workflow import (
@@ -14,9 +15,9 @@ from src.tools import registry
 
 def test_workflow_graph():
     """测试工作流图"""
-    print("\n📊 工作流图测试")
+    print("\n[INFO] Workflow graph test")
 
-    graph = WorkflowGraph("test_workflow", "测试工作流")
+    graph = WorkflowGraph("test_workflow", "Test Workflow")
 
     # 添加节点
     def step1(ctx, state):
@@ -25,8 +26,8 @@ def test_workflow_graph():
     def step2(ctx, state):
         return {"result": "step2 done"}
 
-    graph.add_node(FunctionNode("step1", "步骤1", step1))
-    graph.add_node(FunctionNode("step2", "步骤2", step2, dependencies=["step1"]))
+    graph.add_node(FunctionNode("step1", "Step 1", step1))
+    graph.add_node(FunctionNode("step2", "Step 2", step2, dependencies=["step1"]))
 
     # 添加边
     graph.add_edge("step1", "step2")
@@ -39,16 +40,16 @@ def test_workflow_graph():
     # 可视化
     print(graph.visualize())
 
-    print("✅ 工作流图测试通过")
+    print("[PASS] Workflow graph test passed")
 
 
 def test_workflow_state():
     """测试工作流状态"""
-    print("\n📈 工作流状态测试")
+    print("\n[INFO] Workflow state test")
 
     state = WorkflowState(
         workflow_id="test",
-        name="测试"
+        name="Test"
     )
 
     state.start()
@@ -61,16 +62,16 @@ def test_workflow_state():
     assert "node1" in state.completed_nodes
     assert state.results["node1"]["data"] == "result"
 
-    print(f"   进度: {state.progress * 100:.0f}%")
-    print("✅ 工作流状态测试通过")
+    print(f"   Progress: {state.progress * 100:.0f}%")
+    print("[PASS] Workflow state test passed")
 
 
 async def test_workflow_executor():
     """测试工作流执行器"""
-    print("\n⚡ 工作流执行器测试")
+    print("\n[INFO] Workflow executor test")
 
     # 创建工作流
-    graph = WorkflowGraph("exec_test", "执行测试")
+    graph = WorkflowGraph("exec_test", "Executor Test")
 
     async def async_step1(ctx, state):
         await asyncio.sleep(0.1)
@@ -80,8 +81,8 @@ async def test_workflow_executor():
         prev = ctx.get("step1_result", {})
         return {"value": prev.get("value", 0) * 2}
 
-    graph.add_node(FunctionNode("step1", "步骤1", async_step1))
-    graph.add_node(FunctionNode("step2", "步骤2", async_step2, dependencies=["step1"]))
+    graph.add_node(FunctionNode("step1", "Step 1", async_step1))
+    graph.add_node(FunctionNode("step2", "Step 2", async_step2, dependencies=["step1"]))
     graph.add_edge("step1", "step2")
     graph.set_entry("step1")
 
@@ -90,37 +91,45 @@ async def test_workflow_executor():
     final_state = await executor.run({"initial": True})
 
     assert final_state.status == "completed"
-    print(f"   最终状态: {final_state.status}")
-    print(f"   结果: {final_state.results}")
+    assert final_state.results["step1"]["value"] == 100
+    assert final_state.results["step2"]["value"] == 200
+    assert not inspect.iscoroutine(final_state.results["step1"])
+    assert not inspect.iscoroutine(final_state.results["step2"])
+    print(f"   Final status: {final_state.status}")
+    print(f"   Results: {final_state.results}")
 
-    print("✅ 工作流执行器测试通过")
+    print("[PASS] Workflow executor test passed")
 
 
 def test_workflow_manager():
     """测试工作流管理器"""
-    print("\n🗂️ 工作流管理器测试")
+    print("\n[INFO] Workflow manager test")
 
     manager = WorkflowManager()
 
     # 注册工作流
-    graph = WorkflowGraph("managed", "管理工作流")
-    graph.add_node(FunctionNode("node1", "节点1", lambda c, s: {"ok": True}))
+    graph = WorkflowGraph("managed", "Managed Workflow")
+    graph.add_node(FunctionNode("node1", "Node 1", lambda c, s: {"ok": True}))
     graph.set_entry("node1")
 
     manager.register(graph)
+
+    executor = manager.create_executor("managed")
+    assert executor is not None
+    assert "managed" in manager.executors
 
     # 列出
     workflows = manager.list_workflows()
     assert len(workflows) == 1
 
-    print(f"   已注册工作流: {workflows}")
-    print("✅ 工作流管理器测试通过")
+    print(f"   Registered workflows: {workflows}")
+    print("[PASS] Workflow manager test passed")
 
 
 def run_all_tests():
     """运行所有测试"""
     print("\n" + "=" * 50)
-    print("🧪 工作流系统测试")
+    print("Workflow System Tests")
     print("=" * 50)
 
     test_workflow_graph()
@@ -129,7 +138,7 @@ def run_all_tests():
     test_workflow_manager()
 
     print("\n" + "=" * 50)
-    print("✅ 所有工作流测试通过!")
+    print("All Workflow Tests Passed!")
     print("=" * 50 + "\n")
 
 

@@ -4,6 +4,7 @@ Workflow Nodes
 工作流节点定义，每个节点执行特定的任务。
 """
 from abc import ABC, abstractmethod
+import inspect
 from typing import Any, Dict, List, Optional, Callable
 from pydantic import BaseModel, Field
 
@@ -58,6 +59,8 @@ class FunctionNode(WorkflowNode):
         """执行函数"""
         try:
             result = self.func(context, state)
+            if inspect.isawaitable(result):
+                result = await result
             return NodeResult(success=True, data=result)
         except Exception as e:
             return NodeResult(success=False, error=str(e))

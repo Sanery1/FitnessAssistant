@@ -21,10 +21,10 @@ app = FastAPI(
 # CORS 中间件
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=settings.cors_origins,
+    allow_credentials=settings.cors_allow_credentials,
+    allow_methods=settings.cors_methods,
+    allow_headers=settings.cors_headers,
 )
 
 # 注册 API 路由

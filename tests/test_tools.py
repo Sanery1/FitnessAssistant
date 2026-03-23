@@ -11,19 +11,19 @@ from src.tools.base import ToolResult
 def test_registry():
     """测试工具注册中心"""
     tools = registry.list_tools()
-    print("已注册工具:", tools)
+    print("Registered tools:", tools)
     assert "generate_workout_plan" in tools
     assert "calculate_calories" in tools
     assert "calculate_bmi" in tools
-    print("✅ 注册中心测试通过")
+    print("[PASS] Registry test passed")
 
 
 def test_workout_tool():
     """测试训练计划生成工具"""
     result = registry.execute(
         "generate_workout_plan",
-        goal="减脂",
-        level="初学者",
+        goal="fat_loss",
+        level="beginner",
         days_per_week=3,
         minutes_per_day=60
     )
@@ -32,30 +32,30 @@ def test_workout_tool():
     assert "name" in result.data
     assert "sessions" in result.data
     assert len(result.data["sessions"]) == 3
-    print("✅ 训练计划生成测试通过")
-    print(f"   计划名称: {result.data['name']}")
-    print(f"   训练次数: {len(result.data['sessions'])} 次/周")
+    print("[PASS] Workout plan generation test passed")
+    print(f"   Plan name: {result.data['name']}")
+    print(f"   Sessions per week: {len(result.data['sessions'])}")
 
 
 def test_nutrition_tool():
     """测试热量计算工具"""
     result = registry.execute(
         "calculate_calories",
-        gender="男",
+        gender="male",
         age=28,
         height=175,
         weight=70,
-        activity_level="中度活动",
-        goal="减脂"
+        activity_level="moderate",
+        goal="lose_weight"
     )
 
     assert result.success
     assert "bmr" in result.data
     assert "target_calories" in result.data
     assert "macros" in result.data
-    print("✅ 热量计算测试通过")
-    print(f"   基础代谢: {result.data['bmr']} kcal")
-    print(f"   目标热量: {result.data['target_calories']} kcal")
+    print("[PASS] Calorie calculation test passed")
+    print(f"   BMR: {result.data['bmr']} kcal")
+    print(f"   Target calories: {result.data['target_calories']} kcal")
 
 
 def test_bmi_tool():
@@ -69,28 +69,28 @@ def test_bmi_tool():
     assert result.success
     assert "bmi" in result.data
     assert "category" in result.data
-    print("✅ BMI 计算测试通过")
+    print("[PASS] BMI calculation test passed")
     print(f"   BMI: {result.data['bmi']}")
-    print(f"   分类: {result.data['category']}")
+    print(f"   Category: {result.data['category']}")
 
 
 def test_exercise_info():
     """测试动作信息工具"""
     result = registry.execute(
         "get_exercise_info",
-        exercise_name="深蹲"
+        exercise_name="squat"
     )
 
     assert result.success
     assert "name" in result.data
-    print("✅ 动作信息测试通过")
-    print(f"   动作: {result.data['name']}")
+    print("[PASS] Exercise info test passed")
+    print(f"   Exercise: {result.data['name']}")
 
 
 def run_all_tests():
     """运行所有测试"""
     print("\n" + "=" * 50)
-    print("🧪 工具系统测试")
+    print("Tool System Tests")
     print("=" * 50 + "\n")
 
     test_registry()
@@ -100,7 +100,7 @@ def run_all_tests():
     test_exercise_info()
 
     print("\n" + "=" * 50)
-    print("✅ 所有工具测试通过!")
+    print("All Tool Tests Passed!")
     print("=" * 50 + "\n")
 
 

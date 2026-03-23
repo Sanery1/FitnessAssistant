@@ -6,6 +6,8 @@ LLM Client Abstraction Layer
 - OpenAI
 - 其他 OpenAI 兼容 API
 """
+import asyncio
+import json
 import os
 import httpx
 from abc import ABC, abstractmethod
@@ -14,6 +16,26 @@ from enum import Enum
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+def normalize_tool_arguments(arguments: Any) -> Dict[str, Any]:
+    """Normalize tool-call arguments into a dictionary."""
+    if isinstance(arguments, dict):
+        return arguments
+
+    if isinstance(arguments, str):
+        text = arguments.strip()
+        if not text:
+            return {}
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"工具参数 JSON 解析失败: {exc}") from exc
+        if not isinstance(data, dict):
+            raise ValueError("工具参数必须是 JSON 对象")
+        return data
+
+    raise ValueError("工具参数类型无效，必须为 dict 或 JSON 字符串")
 
 
 class LLMProvider(str, Enum):
@@ -163,7 +185,7 @@ class GLMClient(BaseLLMClient):
                 result["tool_calls"].append({
                     "id": tool_call["id"],
                     "name": tool_call["function"]["name"],
-                    "arguments": tool_call["function"]["arguments"]
+                    "arguments": normalize_tool_arguments(tool_call["function"].get("arguments", {}))
                 })
 
         return result
@@ -200,7 +222,6 @@ class GLMClient(BaseLLMClient):
                     if data_str == "[DONE]":
                         break
                     try:
-                        import json
                         data = json.loads(data_str)
                         delta = data["choices"][0].get("delta", {})
                         if "content" in delta:
@@ -313,7 +334,7 @@ class OpenAIClient(BaseLLMClient):
                 {
                     "id": tc["id"],
                     "name": tc["function"]["name"],
-                    "arguments": tc["function"]["arguments"]
+                    "arguments": normalize_tool_arguments(tc["function"].get("arguments", {}))
                 }
                 for tc in message.get("tool_calls", [])
             ]
@@ -345,7 +366,6 @@ class OpenAIClient(BaseLLMClient):
             for line in response.iter_lines():
                 if line.startswith("data: ") and line != "data: [DONE]":
                     try:
-                        import json
                         data = json.loads(line[6:])
                         delta = data["choices"][0].get("delta", {})
                         if "content" in delta:
@@ -420,6 +440,25 @@ class LLMClient:
         """流式对话"""
         messages = [{"role": "user", "content": message}]
         yield from self._client.stream_chat(messages, system, **kwargs)
+
+    async def achat(
+        self,
+        message: str,
+        system: Optional[str] = None,
+        **kwargs
+    ) -> str:
+        """异步单轮对话（线程封装）。"""
+        return await asyncio.to_thread(self.chat, message, system, **kwargs)
+
+    async def achat_with_tools(
+        self,
+        message: str,
+        tools: List[Dict],
+        system: Optional[str] = None,
+        **kwargs
+    ) -> Dict:
+        """异步工具对话（线程封装）。"""
+        return await asyncio.to_thread(self.chat_with_tools, message, tools, system, **kwargs)
 
     def clear_history(self) -> None:
         """清空对话历史"""

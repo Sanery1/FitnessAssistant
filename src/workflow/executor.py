@@ -108,7 +108,7 @@ class WorkflowManager:
             raise ValueError(f"工作流 {workflow_id} 不存在")
 
         executor = WorkflowExecutor(graph)
-        self.executors[executor.state.workflow_id] = executor
+        self.executors[workflow_id] = executor
         return executor
 
     async def run_workflow(

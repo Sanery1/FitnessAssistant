@@ -49,13 +49,13 @@
 
 ---
 
-## Phase 4: 工作流编排 (待实现)
+## Phase 4: 工作流编排 ✅
 
-- [ ] 实现工作流系统 (workflow/)
-  - [ ] state.py - 状态管理
-  - [ ] nodes.py - 工作流节点
-  - [ ] graph.py - 工作流图
-  - [ ] executor.py - 执行引擎
+- [x] 实现工作流系统 (workflow/)
+  - [x] state.py - 状态管理
+  - [x] nodes.py - 工作流节点
+  - [x] graph.py - 工作流图
+  - [x] executor.py - 执行引擎
 
 ---
 
@@ -87,32 +87,32 @@
   - [x] __main__.py - 命令行入口
   - [x] config.py - 配置管理
 
-- [ ] 测试与验证
-  - [ ] 编写测试用例
-  - [ ] 边缘情况验证
-  - [ ] 运行演示
+- [x] 测试与验证
+  - [x] 编写测试用例
+  - [x] 边缘情况验证
+  - [x] 运行演示
 
-## Phase 8: 项目修复与运行 (当前进行中)
+## Phase 8: 项目修复与运行 ✅
 
 - [x] 环境准备与依赖安装
   - [x] 安装Python依赖包
   - [x] 验证GLM API密钥配置
   - [x] 创建必要的数据目录结构
 
-- [ ] 配置修复
-  - [ ] 检查并修复LLM客户端配置一致性
-  - [ ] 验证API端点可达性
-  - [ ] 测试基础LLM功能
+- [x] 配置修复
+  - [x] 检查并修复LLM客户端配置一致性
+  - [x] 验证API端点可达性
+  - [x] 测试基础LLM功能
 
-- [ ] 功能测试
-  - [ ] 运行单元测试套件
-  - [ ] 测试各个工具模块
-  - [ ] 验证智能体功能
+- [x] 功能测试
+  - [x] 运行单元测试套件
+  - [x] 测试各个工具模块
+  - [x] 验证智能体功能
 
-- [ ] 服务启动
-  - [ ] 启动FastAPI服务
-  - [ ] 测试Web界面
-  - [ ] 验证API端点
+- [x] 服务启动
+  - [x] 启动FastAPI服务
+  - [x] 测试Web界面
+  - [x] 验证API端点
 
 ---
 
@@ -138,3 +138,133 @@
 - 开始 Phase 8 项目修复与运行阶段
 - 已完成环境准备和依赖安装
 - 创建了必要的数据目录结构
+
+### 2026-03-22
+- Phase 4 工作流系统已完成
+  - 实现 WorkflowGraph、WorkflowExecutor、WorkflowManager
+  - 支持 FunctionNode、AgentNode、ToolNode、ConditionNode、ParallelNode
+  - 内置训练计划生成工作流模板
+- Phase 7 测试套件已完成
+  - 工具系统测试通过
+  - Memory 系统测试通过
+  - 工作流系统测试通过
+- Phase 8 所有任务已完成
+  - 服务成功启动并运行
+  - API 端点验证通过
+  - Web 界面可访问
+  - 所有 7 个工具已注册并可用
+
+### 2026-03-23
+- Phase 9 P0 稳定性修复已完成
+  - 修复 FunctionNode 对异步函数未 await 导致 coroutine 泄漏问题
+  - 修复 WorkflowManager.create_executor 对未初始化 state 的索引错误
+  - 修复 chat 路由会话隔离语义（按 user_id 维护独立会话）
+  - 新增并通过 chat 路由会话隔离测试
+  - 全量测试与 RuntimeWarning 严格模式回归通过
+
+### 2026-03-23
+- Phase 10 P1 工程优化已完成
+  - 配置收敛：config 改为统一由 BaseSettings + .env 读取
+  - 工具参数强校验：新增 normalize_tool_arguments 并覆盖字符串/对象输入
+  - 路由异步化：chat_message 使用线程封装避免阻塞事件循环
+  - 新增 LLM 客户端工具函数测试并纳入全量测试入口
+  - 全量测试与严格告警模式回归通过
+
+### 2026-03-23
+- Phase 11 P2 安全加固已完成
+  - 后端 CORS 改为配置驱动，默认来源从 * 收紧为本地开发地址
+  - 前端新增 escapeHtml 并收敛动态渲染路径，降低注入风险
+  - 清理 knowledge 目录冗余 backup 文件
+  - .gitignore 增加 data/memory/test 临时 json 忽略规则
+  - 全量测试与严格告警模式回归通过
+
+### 2026-03-23
+- 新增并完成 Phase 9：P0 稳定性修复与验证
+
+## Phase 9: P0 稳定性修复 ✅
+
+- [x] 修复工作流异步节点执行缺陷
+  - [x] 在 FunctionNode 中兼容同步/异步函数，确保协程被正确 await
+  - [x] 增加可复现该缺陷的测试断言（结果不应为 coroutine）
+  - [x] 运行工作流测试并验证无未等待协程告警
+
+- [x] 修复 WorkflowManager 执行器索引缺陷
+  - [x] 修正 create_executor 中对未初始化 state 的访问
+  - [x] 增加创建执行器路径的单元测试
+  - [x] 验证 workflow manager 测试通过
+
+- [x] 修复聊天会话隔离缺陷
+  - [x] 将会话消息按 user_id 隔离存储
+  - [x] 修正 chat history 与 clear history 的 user_id 语义
+  - [x] 增加多用户会话隔离测试用例
+
+- [x] 回归验证
+  - [x] 运行 tests/run_tests.py
+  - [x] 使用 RuntimeWarning 严格模式复测
+  - [x] 更新 Review 记录与结论
+
+## Phase 10: P1 工程优化 ✅
+
+- [x] LLM 客户端异步化改造
+  - [x] 评估当前调用路径并确定最小改造面
+  - [x] 引入异步请求实现并保持接口兼容
+  - [x] 增加超时/异常路径测试
+
+- [x] 配置来源收敛与默认值一致性
+  - [x] 消除 Settings 默认值与实例化覆盖值冲突
+  - [x] 明确开发/生产配置边界
+  - [x] 补充配置回归验证
+
+- [x] 工具调用参数强校验
+  - [x] 统一处理 tool_call 参数字符串/对象两种形态
+  - [x] 增加参数反序列化失败的错误路径测试
+  - [x] 验证三类 Agent 工具调用稳定性
+
+- [x] 回归验证与记录
+  - [x] 运行全量测试
+  - [x] 严格告警模式复测
+  - [x] 更新 Review 记录
+
+## Phase 11: P2 安全加固 ✅
+
+- [x] 后端默认安全配置收敛
+  - [x] 以配置项方式收紧 CORS allow_origins
+  - [x] 生产场景默认关闭调试能力
+  - [x] 增加安全配置回归验证
+
+- [x] 前端渲染防注入加固
+  - [x] 替换高风险 innerHTML 动态拼接路径
+  - [x] 增加文本转义/安全渲染工具函数
+  - [x] 增加前端渲染安全测试点（最小可复现）
+
+- [x] 清理冗余备份文件与仓库噪声
+  - [x] 清理 src/knowledge 下 backup 文件
+  - [x] 更新忽略规则避免测试临时文件进入版本控制
+  - [x] 回归确认功能未受影响
+
+- [x] 回归验证与记录
+  - [x] 运行全量测试
+  - [x] 严格告警模式复测
+  - [x] 更新 Review 记录
+
+## Phase 12: API 集成测试增强 ✅
+
+- [x] 新增 FastAPI 端到端测试
+  - [x] 健康检查与基础路由测试
+  - [x] workout/nutrition/body 路由正向用例
+  - [x] CORS 白名单行为回归测试
+
+- [x] 集成到统一测试入口
+  - [x] 纳入 tests/run_tests.py
+  - [x] 全量回归通过
+
+### 2026-03-23
+- Phase 12 已完成
+  - 新增 API 集成测试并纳入统一测试入口
+  - 验证全量测试通过
+
+## GitHub 自动同步机制（持续生效）
+
+- [x] 规则建立：每完成一个 Phase，立即执行 add/commit/push，不等待会话结束
+- [x] 提交规范：`phase(<编号>): <阶段结果摘要>`
+- [x] 执行闭环：提交后立即继续下一个 Phase 任务
