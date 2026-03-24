@@ -119,12 +119,16 @@ def test_chat_llm_pool_get_and_update():
     before = get_resp.json()
     assert "active_index" in before
     assert "configs" in before
+    assert "auto_fallback_enabled" in before
+    assert "fallback_cooldown_seconds" in before
     assert len(before["configs"]) >= 1
 
     update_resp = client.put(
         "/api/chat/llm-pool",
         json={
             "active_index": 0,
+            "auto_fallback_enabled": True,
+            "fallback_cooldown_seconds": 30,
             "configs": [
                 {
                     "provider": "glm",
@@ -144,6 +148,8 @@ def test_chat_llm_pool_get_and_update():
     assert update_resp.status_code == 200
     after = update_resp.json()
     assert after["active_index"] == 0
+    assert after["auto_fallback_enabled"] is True
+    assert after["fallback_cooldown_seconds"] == 30
     assert len(after["configs"]) == 2
     assert after["configs"][0]["provider"] == "glm"
     assert after["configs"][1]["provider"] == "openai"

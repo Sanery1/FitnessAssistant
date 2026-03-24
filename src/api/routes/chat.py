@@ -2,6 +2,7 @@
 FastAPI Routes - Chat
 """
 import asyncio
+import time
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -30,6 +31,9 @@ _runtime_llm_config: Dict[str, Optional[str]] = {
 }
 _runtime_llm_pool: List[Dict[str, Optional[str]]] = []
 _active_llm_index: int = 0
+_auto_fallback_enabled: bool = True
+_fallback_cooldown_seconds: int = 120
+_last_failover_at: Optional[float] = None
 
 
 def get_memory(user_id: str = "default") -> MemoryManager:
@@ -117,6 +121,8 @@ class LLMPoolItem(BaseModel):
 class LLMPoolRequest(BaseModel):
     configs: List[LLMPoolItem]
     active_index: int = 0
+    auto_fallback_enabled: bool = True
+    fallback_cooldown_seconds: int = 120
 
 
 class LLMPoolItemView(BaseModel):
@@ -129,6 +135,9 @@ class LLMPoolItemView(BaseModel):
 class LLMPoolResponse(BaseModel):
     active_index: int
     configs: List[LLMPoolItemView]
+    auto_fallback_enabled: bool
+    fallback_cooldown_seconds: int
+    seconds_since_failover: Optional[int]
 
 
 def _friendly_llm_error(detail: str) -> str:
@@ -179,7 +188,7 @@ def _current_llm_entry() -> Dict[str, Optional[str]]:
 
 def _switch_to_next_llm() -> bool:
     """切换到下一个 LLM 配置。返回是否切换成功。"""
-    global _active_llm_index, _llm_client
+    global _active_llm_index, _llm_client, _last_failover_at
 
     if len(_runtime_llm_pool) <= 1:
         return False
@@ -189,6 +198,30 @@ def _switch_to_next_llm() -> bool:
         return False
 
     _active_llm_index = next_index
+    _last_failover_at = time.time()
+    _llm_client = None
+    _orchestrators.clear()
+    return True
+
+
+def _maybe_switch_back_to_primary() -> bool:
+    """当主模型可能恢复时自动回切。"""
+    global _active_llm_index, _llm_client
+
+    if not _auto_fallback_enabled:
+        return False
+
+    if len(_runtime_llm_pool) <= 1 or _active_llm_index == 0:
+        return False
+
+    if _last_failover_at is None:
+        return False
+
+    elapsed = time.time() - _last_failover_at
+    if elapsed < _fallback_cooldown_seconds:
+        return False
+
+    _active_llm_index = 0
     _llm_client = None
     _orchestrators.clear()
     return True
@@ -212,6 +245,8 @@ def _current_llm_config() -> LLMConfigResponse:
 async def chat_message(request: ChatRequest):
     """发送消息并获取回复"""
     try:
+        _maybe_switch_back_to_primary()
+
         user_id = request.user_id or "default"
         orchestrator = get_orchestrator(user_id)
         memory = get_memory(user_id)
@@ -260,6 +295,8 @@ async def chat_message(request: ChatRequest):
 @router.post("/stream")
 async def chat_stream(request: StreamRequest):
     """流式对话"""
+    _maybe_switch_back_to_primary()
+
     llm = get_llm()
     knowledge = get_knowledge()
 
@@ -338,6 +375,10 @@ async def get_llm_pool():
         configs = [current]
         active = 0
 
+    seconds_since_failover = None
+    if _last_failover_at is not None:
+        seconds_since_failover = int(max(0, time.time() - _last_failover_at))
+
     return LLMPoolResponse(
         active_index=active,
         configs=[
@@ -349,13 +390,16 @@ async def get_llm_pool():
             )
             for item in configs
         ],
+        auto_fallback_enabled=_auto_fallback_enabled,
+        fallback_cooldown_seconds=_fallback_cooldown_seconds,
+        seconds_since_failover=seconds_since_failover,
     )
 
 
 @router.put("/llm-pool", response_model=LLMPoolResponse)
 async def update_llm_pool(request: LLMPoolRequest):
     """更新 LLM 池，支持限额自动切换。"""
-    global _llm_client, _active_llm_index
+    global _llm_client, _active_llm_index, _auto_fallback_enabled, _fallback_cooldown_seconds
 
     if not request.configs:
         raise HTTPException(status_code=400, detail="configs 不能为空")
@@ -381,6 +425,8 @@ async def update_llm_pool(request: LLMPoolRequest):
     _runtime_llm_pool.clear()
     _runtime_llm_pool.extend(normalized)
     _active_llm_index = request.active_index
+    _auto_fallback_enabled = request.auto_fallback_enabled
+    _fallback_cooldown_seconds = max(5, int(request.fallback_cooldown_seconds))
 
     # 为避免单配置与池配置冲突，重置单配置覆盖
     _runtime_llm_config["provider"] = None
