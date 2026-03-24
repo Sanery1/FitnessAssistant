@@ -91,6 +91,64 @@ def test_cors_disallowed_origin_preflight():
     assert response.status_code == 400
 
 
+def test_chat_llm_config_get_and_update():
+    get_resp = client.get("/api/chat/llm-config")
+    assert get_resp.status_code == 200
+    before = get_resp.json()
+    assert "provider" in before
+    assert "model" in before
+
+    update_resp = client.put(
+        "/api/chat/llm-config",
+        json={
+            "provider": "glm",
+            "model": "glm-4-plus",
+            "base_url": "https://open.bigmodel.cn/api/paas/v4",
+            "api_key": "",
+        },
+    )
+    assert update_resp.status_code == 200
+    after = update_resp.json()
+    assert after["provider"] == "glm"
+    assert after["model"] == "glm-4-plus"
+
+
+def test_chat_llm_pool_get_and_update():
+    get_resp = client.get("/api/chat/llm-pool")
+    assert get_resp.status_code == 200
+    before = get_resp.json()
+    assert "active_index" in before
+    assert "configs" in before
+    assert len(before["configs"]) >= 1
+
+    update_resp = client.put(
+        "/api/chat/llm-pool",
+        json={
+            "active_index": 0,
+            "configs": [
+                {
+                    "provider": "glm",
+                    "base_url": "https://open.bigmodel.cn/api/paas/v4",
+                    "model": "glm-4-plus",
+                    "api_key": "",
+                },
+                {
+                    "provider": "openai",
+                    "base_url": "https://api.openai.com/v1",
+                    "model": "gpt-4o-mini",
+                    "api_key": "",
+                },
+            ],
+        },
+    )
+    assert update_resp.status_code == 200
+    after = update_resp.json()
+    assert after["active_index"] == 0
+    assert len(after["configs"]) == 2
+    assert after["configs"][0]["provider"] == "glm"
+    assert after["configs"][1]["provider"] == "openai"
+
+
 def run_all_tests():
     print("\n" + "=" * 50)
     print("API Integration Tests")
@@ -113,6 +171,12 @@ def run_all_tests():
 
     test_cors_disallowed_origin_preflight()
     print("[PASS] cors disallowed origin")
+
+    test_chat_llm_config_get_and_update()
+    print("[PASS] chat llm config get/update")
+
+    test_chat_llm_pool_get_and_update()
+    print("[PASS] chat llm pool get/update")
 
     print("\n" + "=" * 50)
     print("All API Integration Tests Passed!")

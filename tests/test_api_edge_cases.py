@@ -105,6 +105,48 @@ def test_cors_preflight_disallowed_method():
     assert response.status_code == 400
 
 
+def test_chat_llm_pool_empty_configs():
+    response = client.put(
+        "/api/chat/llm-pool",
+        json={"active_index": 0, "configs": []},
+    )
+    assert response.status_code == 400
+
+
+def test_chat_llm_pool_active_index_out_of_range():
+    response = client.put(
+        "/api/chat/llm-pool",
+        json={
+            "active_index": 3,
+            "configs": [
+                {
+                    "provider": "glm",
+                    "base_url": "https://open.bigmodel.cn/api/paas/v4",
+                    "model": "glm-4-plus",
+                }
+            ],
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_chat_llm_pool_invalid_provider():
+    response = client.put(
+        "/api/chat/llm-pool",
+        json={
+            "active_index": 0,
+            "configs": [
+                {
+                    "provider": "invalid",
+                    "base_url": "https://example.com/v1",
+                    "model": "foo",
+                }
+            ],
+        },
+    )
+    assert response.status_code == 400
+
+
 def run_all_tests():
     print("\n" + "=" * 50)
     print("API Edge-case Tests")
@@ -133,6 +175,15 @@ def run_all_tests():
 
     test_cors_preflight_disallowed_method()
     print("[PASS] cors disallowed method")
+
+    test_chat_llm_pool_empty_configs()
+    print("[PASS] chat llm pool empty configs")
+
+    test_chat_llm_pool_active_index_out_of_range()
+    print("[PASS] chat llm pool index out of range")
+
+    test_chat_llm_pool_invalid_provider()
+    print("[PASS] chat llm pool invalid provider")
 
     print("\n" + "=" * 50)
     print("All API Edge-case Tests Passed!")
