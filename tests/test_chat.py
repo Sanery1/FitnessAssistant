@@ -73,7 +73,29 @@ def test_chat_message_returns_503_when_agent_failed():
             json={"message": "hello", "user_id": "u_err"},
         )
         assert response.status_code == 503
-        assert "处理出错" in response.text
+        assert "LLM" in response.text
+    finally:
+        chat_route.get_orchestrator = original
+
+
+def test_chat_message_returns_503_when_error_is_embedded_in_text():
+    """多专家拼接文本中包含处理出错时，也应返回 503。"""
+
+    class DummyOrchestrator:
+        def process(self, _message, _context):
+            return AgentResponse(content="【训练建议】\n处理出错: 429", done=True)
+
+    reset_chat_globals()
+
+    original = chat_route.get_orchestrator
+    chat_route.get_orchestrator = lambda _uid="default": DummyOrchestrator()
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/message",
+            json={"message": "hello", "user_id": "u_err2"},
+        )
+        assert response.status_code == 503
     finally:
         chat_route.get_orchestrator = original
 
@@ -91,6 +113,9 @@ def run_all_tests():
 
     test_chat_message_returns_503_when_agent_failed()
     print("[PASS] Chat message error semantics test passed")
+
+    test_chat_message_returns_503_when_error_is_embedded_in_text()
+    print("[PASS] Chat embedded error semantics test passed")
 
     print("\n" + "=" * 50)
     print("All Chat Route Tests Passed!")
