@@ -197,13 +197,25 @@ class CalculateBodyFatTool(Tool):
     }
 
     def execute(self, **kwargs) -> ToolResult:
-        gender = kwargs.get("gender", "男")
+        gender = self._normalize_gender(kwargs.get("gender", "男"))
         height = kwargs.get("height", 170)
         waist = kwargs.get("waist", 80)
         neck = kwargs.get("neck", 35)
         hip = kwargs.get("hip", 90)
 
         import math
+
+        if height <= 0 or waist <= 0 or neck <= 0:
+            return ToolResult(success=False, error="身高、腰围、颈围必须为正数")
+
+        if gender == "男" and waist <= neck:
+            return ToolResult(success=False, error="男性参数非法：腰围需大于颈围")
+
+        if gender == "女" and not hip:
+            return ToolResult(success=False, error="女性需要提供臀围数据")
+
+        if gender == "女" and (waist + hip - neck) <= 0:
+            return ToolResult(success=False, error="女性参数非法：腰围+臀围需大于颈围")
 
         if gender == "男":
             # 男性公式
@@ -212,8 +224,6 @@ class CalculateBodyFatTool(Tool):
             ) - 450
         else:
             # 女性公式
-            if not hip:
-                return ToolResult(success=False, error="女性需要提供臀围数据")
             body_fat = 495 / (
                 1.29579 - 0.35004 * math.log10(waist + hip - neck) + 0.22100 * math.log10(height)
             ) - 450
@@ -254,6 +264,20 @@ class CalculateBodyFatTool(Tool):
         }
 
         return ToolResult(success=True, data=result)
+
+    def _normalize_gender(self, value: str) -> str:
+        """Normalize gender values to 中文男/女。"""
+        text = (value or "").strip().lower()
+        male_aliases = {"男", "male", "m", "man", "boy"}
+        female_aliases = {"女", "female", "f", "woman", "girl"}
+
+        if text in male_aliases:
+            return "男"
+        if text in female_aliases:
+            return "女"
+
+        # 默认按男性处理，保证向后兼容
+        return "男"
 
 
 # 注册工具

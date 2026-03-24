@@ -42,12 +42,15 @@ class CalculateCaloriesTool(Tool):
     }
 
     def execute(self, **kwargs) -> ToolResult:
-        gender = kwargs.get("gender", "男")
+        gender = self._normalize_gender(kwargs.get("gender", "男"))
         age = kwargs.get("age", 25)
         height = kwargs.get("height", 170)
         weight = kwargs.get("weight", 70)
-        activity = kwargs.get("activity_level", "中度活动")
-        goal = kwargs.get("goal", "保持")
+        activity = self._normalize_activity_level(kwargs.get("activity_level", "中度活动"))
+        goal = self._normalize_goal(kwargs.get("goal", "保持"))
+
+        if age <= 0 or height <= 0 or weight <= 0:
+            return ToolResult(success=False, error="年龄、身高、体重必须为正数")
 
         # Mifflin-St Jeor 公式计算基础代谢
         if gender == "男":
@@ -86,6 +89,45 @@ class CalculateCaloriesTool(Tool):
         }
 
         return ToolResult(success=True, data=result)
+
+    def _normalize_gender(self, value: str) -> str:
+        text = (value or "").strip().lower()
+        if text in {"男", "male", "m", "man", "boy"}:
+            return "男"
+        if text in {"女", "female", "f", "woman", "girl"}:
+            return "女"
+        return "男"
+
+    def _normalize_activity_level(self, value: str) -> str:
+        text = (value or "").strip().lower()
+        mapping = {
+            "久坐": "久坐",
+            "sedentary": "久坐",
+            "light": "轻度活动",
+            "轻度活动": "轻度活动",
+            "moderate": "中度活动",
+            "中度活动": "中度活动",
+            "high": "高度活动",
+            "高度活动": "高度活动",
+            "very_high": "极高活动",
+            "extreme": "极高活动",
+            "极高活动": "极高活动",
+        }
+        return mapping.get(text, "中度活动")
+
+    def _normalize_goal(self, value: str) -> str:
+        text = (value or "").strip().lower()
+        mapping = {
+            "减脂": "减脂",
+            "lose_weight": "减脂",
+            "loss": "减脂",
+            "增肌": "增肌",
+            "gain_muscle": "增肌",
+            "bulk": "增肌",
+            "保持": "保持",
+            "maintain": "保持",
+        }
+        return mapping.get(text, "保持")
 
     def _calculate_macros(self, calories: float, goal: str) -> Dict:
         """计算宏量营养素"""
@@ -177,6 +219,9 @@ class AnalyzeNutritionTool(Tool):
         foods = kwargs.get("foods", [])
         target = kwargs.get("target_calories", 2000)
 
+        if target <= 0:
+            return ToolResult(success=False, error="目标热量必须为正数")
+
         # 简化的食物营养数据
         food_db = {
             "米饭": {"cal": 116, "p": 2.6, "c": 25.6, "f": 0.3},
@@ -190,12 +235,27 @@ class AnalyzeNutritionTool(Tool):
             "香蕉": {"cal": 89, "p": 1.1, "c": 22.8, "f": 0.3}
         }
 
+        alias_map = {
+            "rice": "米饭",
+            "chicken breast": "鸡胸肉",
+            "beef": "牛肉",
+            "egg": "鸡蛋",
+            "milk": "牛奶",
+            "broccoli": "西兰花",
+            "apple": "苹果",
+            "banana": "香蕉",
+        }
+
         total = {"calories": 0, "protein": 0, "carbs": 0, "fat": 0}
         details = []
 
         for food in foods:
-            name = food.get("name", "")
-            amount = food.get("amount", 100)
+            raw_name = str(food.get("name", "")).strip()
+            name = alias_map.get(raw_name.lower(), raw_name)
+            amount = food.get("amount", food.get("weight", 100))
+
+            if amount <= 0:
+                continue
 
             if name in food_db:
                 data = food_db[name]

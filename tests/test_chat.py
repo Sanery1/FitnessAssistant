@@ -5,6 +5,10 @@ import sys
 import asyncio
 sys.path.insert(0, ".")
 
+from fastapi.testclient import TestClient
+
+from src.main import app
+from src.agents.base import AgentResponse
 from src.api.routes import chat as chat_route
 
 
@@ -51,6 +55,29 @@ def test_chat_clear_history_scope():
     assert len(history_u2["messages"]) > 0
 
 
+def test_chat_message_returns_503_when_agent_failed():
+    """Agent 返回处理错误时，接口应返回 503。"""
+
+    class DummyOrchestrator:
+        def process(self, _message, _context):
+            return AgentResponse(content="处理出错: timeout", done=True)
+
+    reset_chat_globals()
+
+    original = chat_route.get_orchestrator
+    chat_route.get_orchestrator = lambda _uid="default": DummyOrchestrator()
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/chat/message",
+            json={"message": "hello", "user_id": "u_err"},
+        )
+        assert response.status_code == 503
+        assert "处理出错" in response.text
+    finally:
+        chat_route.get_orchestrator = original
+
+
 def run_all_tests():
     print("\n" + "=" * 50)
     print("Chat Route Tests")
@@ -61,6 +88,9 @@ def run_all_tests():
 
     test_chat_clear_history_scope()
     print("[PASS] Chat clear scope test passed")
+
+    test_chat_message_returns_503_when_agent_failed()
+    print("[PASS] Chat message error semantics test passed")
 
     print("\n" + "=" * 50)
     print("All Chat Route Tests Passed!")

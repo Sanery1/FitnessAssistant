@@ -101,6 +101,10 @@ async def chat_message(request: ChatRequest):
             user_context
         )
 
+        # Agent 内部失败时，避免返回 200 + 错误文本造成调用方误判
+        if isinstance(response.content, str) and response.content.startswith("处理出错:"):
+            raise HTTPException(status_code=503, detail=response.content)
+
         # 保存对话
         memory.add_message("user", request.message)
         memory.add_message("assistant", response.content)
@@ -112,6 +116,8 @@ async def chat_message(request: ChatRequest):
         )
 
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
         raise HTTPException(status_code=500, detail=str(e))
 
 

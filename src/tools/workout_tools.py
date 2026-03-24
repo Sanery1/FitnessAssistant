@@ -46,10 +46,10 @@ class GenerateWorkoutPlanTool(Tool):
     }
 
     def execute(self, **kwargs) -> ToolResult:
-        goal = kwargs.get("goal", "综合健身")
-        level = kwargs.get("level", "初学者")
+        goal = self._normalize_goal(kwargs.get("goal", "综合健身"))
+        level = self._normalize_level(kwargs.get("level", "初学者"))
         days = min(max(kwargs.get("days_per_week", 3), 1), 7)
-        minutes = kwargs.get("minutes_per_day", 60)
+        minutes = max(int(kwargs.get("minutes_per_day", 60)), 10)
         focus = kwargs.get("focus_areas", [])
         injuries = kwargs.get("injuries", [])
 
@@ -57,6 +57,38 @@ class GenerateWorkoutPlanTool(Tool):
         plan = self._build_plan(goal, level, days, minutes, focus, injuries)
 
         return ToolResult(success=True, data=plan)
+
+    def _normalize_goal(self, value: str) -> str:
+        text = (value or "").strip().lower()
+        mapping = {
+            "fat_loss": "减脂",
+            "lose_weight": "减脂",
+            "减脂": "减脂",
+            "muscle_gain": "增肌",
+            "gain_muscle": "增肌",
+            "增肌": "增肌",
+            "maintain": "保持",
+            "保持": "保持",
+            "endurance": "提升耐力",
+            "提升耐力": "提升耐力",
+            "strength": "提升力量",
+            "提升力量": "提升力量",
+            "general": "综合健身",
+            "综合健身": "综合健身",
+        }
+        return mapping.get(text, value if value else "综合健身")
+
+    def _normalize_level(self, value: str) -> str:
+        text = (value or "").strip().lower()
+        mapping = {
+            "beginner": "初学者",
+            "初学者": "初学者",
+            "intermediate": "中级",
+            "中级": "中级",
+            "advanced": "高级",
+            "高级": "高级",
+        }
+        return mapping.get(text, "初学者")
 
     def _build_plan(self, goal: str, level: str, days: int,
                     minutes: int, focus: List[str], injuries: List[str]) -> Dict:

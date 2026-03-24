@@ -66,6 +66,34 @@ def test_body_calculate_bmi_missing_field():
     assert response.status_code == 422
 
 
+def test_body_fat_accepts_english_gender():
+    response = client.post(
+        "/api/body/calculate-body-fat",
+        json={
+            "gender": "male",
+            "height": 175,
+            "waist": 82,
+            "neck": 38,
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "body_fat_percent" in data
+
+
+def test_nutrition_analyze_accepts_weight_alias():
+    response = client.post(
+        "/api/nutrition/analyze",
+        json={
+            "foods": [{"name": "鸡胸肉", "weight": 200}],
+            "target_calories": 2000,
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"]["calories"] > 0
+
+
 def test_cors_preflight_disallowed_method():
     response = client.options(
         "/api/body/calculate-bmi",
@@ -96,6 +124,12 @@ def run_all_tests():
 
     test_body_calculate_bmi_missing_field()
     print("[PASS] body bmi missing field")
+
+    test_body_fat_accepts_english_gender()
+    print("[PASS] body fat english gender")
+
+    test_nutrition_analyze_accepts_weight_alias()
+    print("[PASS] nutrition analyze weight alias")
 
     test_cors_preflight_disallowed_method()
     print("[PASS] cors disallowed method")
