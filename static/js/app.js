@@ -103,6 +103,13 @@ async function sendMessage() {
         });
 
         const data = await response.json();
+
+        if (!response.ok) {
+            const detail = String((data && data.detail) || '');
+            const text = toFriendlyChatError(response.status, detail);
+            throw new Error(text);
+        }
+
         loadingEl.remove();
         addMessage('assistant', data.content);
 
@@ -110,6 +117,24 @@ async function sendMessage() {
         loadingEl.remove();
         addMessage('assistant', '抱歉，发生了错误：' + error.message);
     }
+}
+
+function toFriendlyChatError(status, detail) {
+    const text = (detail || '').toLowerCase();
+
+    if (status === 503 || text.includes('429') || text.includes('too many requests')) {
+        return '当前 AI 服务较忙，请稍后重试。';
+    }
+
+    if (status === 401 || text.includes('api key') || text.includes('unauthorized')) {
+        return 'AI 服务鉴权失败，请联系管理员检查配置。';
+    }
+
+    if (text.includes('timeout') || text.includes('timed out')) {
+        return 'AI 服务响应超时，请稍后重试。';
+    }
+
+    return '暂时无法获取 AI 回复，请稍后重试。';
 }
 
 function addMessage(role, content, isLoading = false) {
@@ -369,12 +394,99 @@ function initSettings() {
     const form = document.getElementById('settings-form');
     if (!form) return;
 
+    loadLLMConfig(form);
+
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const formData = new FormData(form);
 
-        alert('设置已保存！');
+        const payload = {
+            provider: String(formData.get('llm_provider') || 'glm').trim(),
+            base_url: String(formData.get('llm_base_url') || '').trim(),
+            model: String(formData.get('llm_model') || '').trim(),
+            api_key: String(formData.get('llm_api_key') || '').trim()
+        };
+
+        const fallbackText = String(formData.get('llm_fallback_models') || '').trim();
+        const fallbackModels = fallbackText
+            .split(',')
+            .map(item => item.trim())
+            .filter(Boolean);
+
+        const poolConfigs = [
+            {
+                provider: payload.provider,
+                base_url: payload.base_url,
+                model: payload.model,
+                api_key: payload.api_key
+            },
+            ...fallbackModels.map(model => ({
+                provider: payload.provider,
+                base_url: payload.base_url,
+                model,
+                api_key: payload.api_key
+            }))
+        ];
+
+        try {
+            const response = await fetch(`${API_BASE}/chat/llm-pool`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    active_index: 0,
+                    auto_fallback_enabled: true,
+                    fallback_cooldown_seconds: 120,
+                    configs: poolConfigs
+                })
+            });
+
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(String(data.detail || '保存失败'));
+            }
+
+            const providerEl = form.querySelector('[name="llm_provider"]');
+            const baseEl = form.querySelector('[name="llm_base_url"]');
+            const modelEl = form.querySelector('[name="llm_model"]');
+            const fallbackEl = form.querySelector('[name="llm_fallback_models"]');
+            const keyEl = form.querySelector('[name="llm_api_key"]');
+
+            if (providerEl && data.configs && data.configs.length > 0) providerEl.value = data.configs[0].provider || providerEl.value;
+            if (baseEl && data.configs && data.configs.length > 0) baseEl.value = data.configs[0].base_url || '';
+            if (modelEl && data.configs && data.configs.length > 0) modelEl.value = data.configs[0].model || '';
+            if (fallbackEl && data.configs && data.configs.length > 1) {
+                fallbackEl.value = data.configs.slice(1).map(item => item.model).join(',');
+            }
+            if (keyEl) keyEl.value = '';
+
+            alert('LLM 池配置已保存，新的对话请求将立即生效。');
+        } catch (error) {
+            alert(`保存失败：${error.message}`);
+        }
     });
+}
+
+async function loadLLMConfig(form) {
+    try {
+        const response = await fetch(`${API_BASE}/chat/llm-pool`);
+        const data = await response.json();
+        if (!response.ok || !data.configs || data.configs.length === 0) return;
+
+        const providerEl = form.querySelector('[name="llm_provider"]');
+        const baseEl = form.querySelector('[name="llm_base_url"]');
+        const modelEl = form.querySelector('[name="llm_model"]');
+        const fallbackEl = form.querySelector('[name="llm_fallback_models"]');
+
+        const first = data.configs[0];
+        if (providerEl && first.provider) providerEl.value = first.provider;
+        if (baseEl && first.base_url) baseEl.value = first.base_url;
+        if (modelEl && first.model) modelEl.value = first.model;
+        if (fallbackEl) {
+            fallbackEl.value = data.configs.slice(1).map(item => item.model).join(',');
+        }
+    } catch (_error) {
+        // 静默失败，不阻塞页面主功能
+    }
 }
 
 // ==================== 初始化 ====================

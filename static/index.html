@@ -276,6 +276,40 @@
 
                 <div class="form-container">
                     <form id="settings-form" class="styled-form">
+                        <h3>对话 LLM 配置</h3>
+
+                        <div class="form-group">
+                            <label>Provider</label>
+                            <select name="llm_provider">
+                                <option value="glm">GLM</option>
+                                <option value="openai">OpenAI Compatible</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Base URL</label>
+                            <input type="text" name="llm_base_url" placeholder="例如: https://open.bigmodel.cn/api/paas/v4">
+                        </div>
+
+                        <div class="form-group">
+                            <label>Model</label>
+                            <input type="text" name="llm_model" placeholder="例如: glm-4-plus / gpt-4o-mini">
+                        </div>
+
+                        <div class="form-group">
+                            <label>Fallback Models（逗号分隔，按顺序切换）</label>
+                            <input type="text" name="llm_fallback_models" placeholder="例如: glm-5,Qwen3.5-397B-A17B,DeepSeek-V3.1">
+                        </div>
+
+                        <div class="form-group">
+                            <label>API Key（可选，留空则使用服务端 .env）</label>
+                            <input type="password" name="llm_api_key" placeholder="输入后仅用于当前运行时">
+                        </div>
+
+                        <hr>
+
+                        <h3>用户信息</h3>
+
                         <div class="form-group">
                             <label>用户名</label>
                             <input type="text" name="name" placeholder="输入你的名字">

@@ -155,6 +155,14 @@ def test_chat_llm_pool_get_and_update():
     assert after["configs"][1]["provider"] == "openai"
 
 
+def test_chat_llm_failover_logs_endpoint():
+    response = client.get("/api/chat/llm-failover-logs?limit=10")
+    assert response.status_code == 200
+    data = response.json()
+    assert "logs" in data
+    assert isinstance(data["logs"], list)
+
+
 def run_all_tests():
     print("\n" + "=" * 50)
     print("API Integration Tests")
@@ -183,6 +191,9 @@ def run_all_tests():
 
     test_chat_llm_pool_get_and_update()
     print("[PASS] chat llm pool get/update")
+
+    test_chat_llm_failover_logs_endpoint()
+    print("[PASS] chat llm failover logs endpoint")
 
     print("\n" + "=" * 50)
     print("All API Integration Tests Passed!")

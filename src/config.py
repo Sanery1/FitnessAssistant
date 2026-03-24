@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
     llm_model: str = "glm-4-plus"
     llm_provider: str = "glm"
+    llm_fallback_models: str = ""
+
+    # OpenAI-compatible aliases (optional)
+    openai_api_key: Optional[str] = None
+    openai_base_url: Optional[str] = None
+    https_proxy: Optional[str] = None
+    http_proxy: Optional[str] = None
 
     # Storage
     data_path: str = "data"
@@ -45,6 +52,18 @@ class Settings(BaseSettings):
     @property
     def cors_headers(self) -> List[str]:
         return [item.strip() for item in self.cors_allow_headers.split(",") if item.strip()]
+
+    @property
+    def effective_llm_api_key(self) -> Optional[str]:
+        return self.llm_api_key or self.openai_api_key
+
+    @property
+    def effective_llm_base_url(self) -> str:
+        return self.llm_base_url or self.openai_base_url or "https://open.bigmodel.cn/api/paas/v4"
+
+    @property
+    def llm_pool_models(self) -> List[str]:
+        return [item.strip() for item in self.llm_fallback_models.split(",") if item.strip()]
 
     class Config:
         env_file = ".env"
