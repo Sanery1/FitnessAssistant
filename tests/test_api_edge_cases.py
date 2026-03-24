@@ -8,9 +8,11 @@ sys.path.insert(0, ".")
 from fastapi.testclient import TestClient
 
 from src.main import app
+from src.config import settings
 
 
 client = TestClient(app)
+INTERNAL_HEADERS = {"X-Internal-Token": settings.internal_api_token}
 
 
 def test_workout_generate_plan_missing_required_field():
@@ -107,7 +109,8 @@ def test_cors_preflight_disallowed_method():
 
 def test_chat_llm_pool_empty_configs():
     response = client.put(
-        "/api/chat/llm-pool",
+        "/api/chat/_internal/llm-pool",
+        headers=INTERNAL_HEADERS,
         json={"active_index": 0, "configs": []},
     )
     assert response.status_code == 400
@@ -115,7 +118,8 @@ def test_chat_llm_pool_empty_configs():
 
 def test_chat_llm_pool_active_index_out_of_range():
     response = client.put(
-        "/api/chat/llm-pool",
+        "/api/chat/_internal/llm-pool",
+        headers=INTERNAL_HEADERS,
         json={
             "active_index": 3,
             "configs": [
@@ -132,7 +136,8 @@ def test_chat_llm_pool_active_index_out_of_range():
 
 def test_chat_llm_pool_invalid_provider():
     response = client.put(
-        "/api/chat/llm-pool",
+        "/api/chat/_internal/llm-pool",
+        headers=INTERNAL_HEADERS,
         json={
             "active_index": 0,
             "configs": [

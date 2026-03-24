@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     llm_model: str = "glm-4-plus"
     llm_provider: str = "glm"
     llm_fallback_models: str = ""
+    internal_api_token: str = "fitness-internal-only"
 
     # OpenAI-compatible aliases (optional)
     openai_api_key: Optional[str] = None

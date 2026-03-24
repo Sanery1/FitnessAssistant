@@ -3,8 +3,7 @@ FastAPI Routes - Chat
 """
 import asyncio
 import time
-from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -38,35 +37,9 @@ _last_failover_at: Optional[float] = None
 _pool_initialized_from_settings: bool = False
 
 
-def _failover_log_path() -> Path:
-    log_dir = Path(settings.memory_path)
-    log_dir.mkdir(parents=True, exist_ok=True)
-    return log_dir / "llm_failover.log"
-
-
-def _append_failover_log(event: str, from_index: int, to_index: int, reason: str) -> None:
-    def _model_by_index(index: int) -> Optional[str]:
-        if _runtime_llm_pool and 0 <= index < len(_runtime_llm_pool):
-            return _runtime_llm_pool[index].get("model")
-        current = _current_llm_entry()
-        return current.get("model") or settings.llm_model
-
-    record = {
-        "ts": int(time.time()),
-        "event": event,
-        "from_index": from_index,
-        "to_index": to_index,
-        "from_model": _model_by_index(from_index),
-        "to_model": _model_by_index(to_index),
-        "reason": reason,
-    }
-    with _failover_log_path().open("a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
-
-
 def _ensure_pool_initialized_from_settings() -> None:
     """Initialize LLM pool from .env once at runtime."""
-    global _pool_initialized_from_settings, _runtime_llm_pool
+    global _pool_initialized_from_settings, _runtime_llm_pool, _active_llm_index
 
     if _pool_initialized_from_settings:
         return
@@ -101,6 +74,13 @@ def _ensure_pool_initialized_from_settings() -> None:
                 "api_key": api_key,
             }
         )
+
+    # 默认优先激活 glm-5；若不存在则保持当前索引逻辑。
+    preferred = "glm-5"
+    for i, cfg in enumerate(_runtime_llm_pool):
+        if (cfg.get("model") or "").strip().lower() == preferred:
+            _active_llm_index = i
+            break
 
 
 def get_memory(user_id: str = "default") -> MemoryManager:
@@ -208,6 +188,15 @@ class LLMPoolResponse(BaseModel):
     seconds_since_failover: Optional[int]
 
 
+class ActiveLLMRequest(BaseModel):
+    model: str
+
+
+class LLMModelsResponse(BaseModel):
+    active_model: str
+    models: List[str]
+
+
 def _friendly_llm_error(detail: str) -> str:
     """Map low-level provider errors to user-friendly messages."""
     text = (detail or "").lower()
@@ -272,16 +261,14 @@ def _switch_to_next_llm() -> bool:
     if len(_runtime_llm_pool) <= 1:
         return False
 
-    next_index = _active_llm_index + 1
-    if next_index >= len(_runtime_llm_pool):
+    next_index = (_active_llm_index + 1) % len(_runtime_llm_pool)
+    if next_index == _active_llm_index:
         return False
 
-    previous = _active_llm_index
     _active_llm_index = next_index
     _last_failover_at = time.time()
     _llm_client = None
     _orchestrators.clear()
-    _append_failover_log("failover", previous, _active_llm_index, "candidate_error")
     return True
 
 
@@ -302,11 +289,9 @@ def _maybe_switch_back_to_primary() -> bool:
     if elapsed < _fallback_cooldown_seconds:
         return False
 
-    previous = _active_llm_index
     _active_llm_index = 0
     _llm_client = None
     _orchestrators.clear()
-    _append_failover_log("fallback_to_primary", previous, 0, "cooldown_elapsed")
     return True
 
 
@@ -323,6 +308,79 @@ def _current_llm_config() -> LLMConfigResponse:
         model=model,
         has_api_key=bool(api_key),
     )
+
+
+def _settings_models() -> List[str]:
+    models: List[str] = []
+    primary_model = (settings.llm_model or "").strip()
+    if primary_model:
+        models.append(primary_model)
+    for item in settings.llm_pool_models:
+        if item and item not in models:
+            models.append(item)
+    return models
+
+
+def _rebuild_pool_from_settings() -> None:
+    global _active_llm_index
+
+    models = _settings_models()
+    if len(models) <= 1:
+        return
+
+    provider = (_runtime_llm_config.get("provider") or settings.llm_provider or "openai").strip().lower()
+    base_url = _runtime_llm_config.get("base_url") or settings.effective_llm_base_url
+    api_key = _runtime_llm_config.get("api_key") or settings.effective_llm_api_key
+    current_model = _runtime_llm_config.get("model") or settings.llm_model
+
+    _runtime_llm_pool.clear()
+    for model in models:
+        _runtime_llm_pool.append(
+            {
+                "provider": provider,
+                "base_url": base_url,
+                "model": model,
+                "api_key": api_key,
+            }
+        )
+
+    _active_llm_index = 0
+    for i, cfg in enumerate(_runtime_llm_pool):
+        if (cfg.get("model") or "") == current_model:
+            _active_llm_index = i
+            return
+
+    for i, cfg in enumerate(_runtime_llm_pool):
+        if (cfg.get("model") or "").strip().lower() == "glm-5":
+            _active_llm_index = i
+            return
+
+
+def _available_models() -> List[str]:
+    _ensure_pool_initialized_from_settings()
+    if _runtime_llm_pool:
+        return [item.get("model") or settings.llm_model for item in _runtime_llm_pool]
+
+    models = _settings_models()
+    current = _current_llm_entry().get("model") or settings.llm_model
+    if current and current not in models:
+        models.append(current)
+    if not models:
+        models = [current]
+    return models
+
+
+def _active_model_name() -> str:
+    current = _current_llm_entry()
+    return current.get("model") or settings.llm_model
+
+
+def _verify_internal_access(
+    x_internal_token: Optional[str] = Header(default=None, alias="X-Internal-Token"),
+) -> None:
+    expected = (settings.internal_api_token or "").strip()
+    if not expected or x_internal_token != expected:
+        raise HTTPException(status_code=403, detail="forbidden")
 
 
 @router.post("/message", response_model=ChatResponse)
@@ -411,13 +469,21 @@ async def chat_stream(request: StreamRequest):
     return StreamingResponse(generate(), media_type="text/event-stream")
 
 
-@router.get("/llm-config", response_model=LLMConfigResponse)
+@router.get(
+    "/_internal/llm-config",
+    response_model=LLMConfigResponse,
+    dependencies=[Depends(_verify_internal_access)],
+)
 async def get_llm_config():
     """获取当前对话使用的 LLM 配置（不返回明文 API Key）。"""
     return _current_llm_config()
 
 
-@router.put("/llm-config", response_model=LLMConfigResponse)
+@router.put(
+    "/_internal/llm-config",
+    response_model=LLMConfigResponse,
+    dependencies=[Depends(_verify_internal_access)],
+)
 async def update_llm_config(request: LLMConfigRequest):
     """更新对话 LLM 运行时配置，更新后立即生效。"""
     global _llm_client, _active_llm_index
@@ -448,7 +514,11 @@ async def update_llm_config(request: LLMConfigRequest):
     return _current_llm_config()
 
 
-@router.get("/llm-pool", response_model=LLMPoolResponse)
+@router.get(
+    "/_internal/llm-pool",
+    response_model=LLMPoolResponse,
+    dependencies=[Depends(_verify_internal_access)],
+)
 async def get_llm_pool():
     """获取当前 LLM 池配置（不返回明文 API Key）。"""
     _ensure_pool_initialized_from_settings()
@@ -481,25 +551,50 @@ async def get_llm_pool():
     )
 
 
-@router.get("/llm-failover-logs")
-async def get_llm_failover_logs(limit: int = 50):
-    """读取最近的 LLM 切换日志。"""
-    path = _failover_log_path()
-    if not path.exists():
-        return {"logs": []}
-
-    lines = path.read_text(encoding="utf-8").splitlines()
-    selected = lines[-max(1, min(limit, 500)):]
-    logs = []
-    for line in selected:
-        try:
-            logs.append(json.loads(line))
-        except Exception:
-            continue
-    return {"logs": logs}
+@router.get("/llm-models", response_model=LLMModelsResponse)
+async def get_llm_models():
+    """获取可选模型列表与当前激活模型。"""
+    return LLMModelsResponse(active_model=_active_model_name(), models=_available_models())
 
 
-@router.put("/llm-pool", response_model=LLMPoolResponse)
+@router.put("/active-llm", response_model=LLMModelsResponse)
+async def update_active_llm(request: ActiveLLMRequest):
+    """按模型名切换当前激活模型。"""
+    global _active_llm_index, _llm_client
+
+    target = (request.model or "").strip()
+    if not target:
+        raise HTTPException(status_code=400, detail="model 不能为空")
+
+    _ensure_pool_initialized_from_settings()
+
+    if not _runtime_llm_pool and target in _settings_models():
+        _rebuild_pool_from_settings()
+
+    if _runtime_llm_pool:
+        matched_index = -1
+        for i, cfg in enumerate(_runtime_llm_pool):
+            if (cfg.get("model") or "") == target:
+                matched_index = i
+                break
+        if matched_index < 0:
+            raise HTTPException(status_code=404, detail="目标模型不存在于当前模型池")
+        _active_llm_index = matched_index
+    else:
+        current = _current_llm_entry().get("model") or settings.llm_model
+        if current != target:
+            raise HTTPException(status_code=404, detail="目标模型不可用")
+
+    _llm_client = None
+    _orchestrators.clear()
+    return await get_llm_models()
+
+
+@router.put(
+    "/_internal/llm-pool",
+    response_model=LLMPoolResponse,
+    dependencies=[Depends(_verify_internal_access)],
+)
 async def update_llm_pool(request: LLMPoolRequest):
     """更新 LLM 池，支持限额自动切换。"""
     global _llm_client, _active_llm_index, _auto_fallback_enabled, _fallback_cooldown_seconds

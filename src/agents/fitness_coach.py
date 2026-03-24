@@ -66,11 +66,23 @@ class FitnessCoachAgent(BaseAgent):
             tools = self.get_tool_schemas()
             messages = self.get_messages_for_api()
 
-            response = self.llm.chat_with_tools(
-                message=messages[-1]["content"],
-                tools=tools,
-                system=self.get_system_prompt() + user_context
-            )
+            # 某些网关/模型不支持 tools 时会返回 400，降级到普通对话避免整链路失败。
+            try:
+                response = self.llm.chat_with_tools(
+                    message=messages[-1]["content"],
+                    tools=tools,
+                    system=self.get_system_prompt() + user_context
+                )
+            except Exception as tool_exc:
+                if "400" in str(tool_exc):
+                    fallback_content = self.llm.chat(
+                        message=messages[-1]["content"],
+                        system=self.get_system_prompt() + user_context
+                    )
+                    self.add_message("assistant", fallback_content)
+                    self.state = "done"
+                    return AgentResponse(content=fallback_content, done=True)
+                raise
 
             content = response.get("content", "")
             tool_calls = response.get("tool_calls", [])

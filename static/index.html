@@ -84,6 +84,9 @@
                             <button class="quick-btn" data-msg="分析我的健身进度">进度分析</button>
                         </div>
                         <div class="chat-input-wrapper">
+                            <select id="chat-model-select" name="active_llm_model" title="选择对话模型">
+                                <option value="glm-5">glm-5</option>
+                            </select>
                             <textarea id="chat-input" placeholder="输入你的问题..." rows="1"></textarea>
                             <button id="send-btn" class="send-btn">
                                 <span>发送</span>
@@ -276,50 +279,6 @@
 
                 <div class="form-container">
                     <form id="settings-form" class="styled-form">
-                        <h3>对话 LLM 配置</h3>
-
-                        <div class="form-group">
-                            <label>Provider</label>
-                            <select name="llm_provider">
-                                <option value="glm">GLM</option>
-                                <option value="openai">OpenAI Compatible</option>
-                            </select>
-                        </div>
-
-                        <div class="form-group">
-                            <label>Base URL</label>
-                            <input type="text" name="llm_base_url" placeholder="例如: https://open.bigmodel.cn/api/paas/v4">
-                        </div>
-
-                        <div class="form-group">
-                            <label>Model</label>
-                            <input type="text" name="llm_model" placeholder="例如: glm-4-plus / gpt-4o-mini">
-                        </div>
-
-                        <div class="form-group">
-                            <label>Fallback Models（逗号分隔，按顺序切换）</label>
-                            <input type="text" name="llm_fallback_models" placeholder="例如: glm-5,Qwen3.5-397B-A17B,DeepSeek-V3.1">
-                        </div>
-
-                        <div class="form-group">
-                            <label>API Key（可选，留空则使用服务端 .env）</label>
-                            <input type="password" name="llm_api_key" placeholder="输入后仅用于当前运行时">
-                        </div>
-
-                        <div class="form-group">
-                            <label>最近切换日志</label>
-                            <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
-                                <select id="llm-log-model-filter" style="flex:1;min-width:180px;">
-                                    <option value="">全部模型</option>
-                                </select>
-                                <input id="llm-log-keyword" type="text" placeholder="搜索关键词" style="flex:1;min-width:180px;">
-                            </div>
-                            <div id="llm-log-panel" style="background:#f5f7fa;border:1px solid #d9e1ec;border-radius:8px;padding:10px;max-height:180px;overflow:auto;font-size:12px;line-height:1.5;white-space:pre-wrap;">暂无日志</div>
-                            <button type="button" id="refresh-llm-logs-btn" class="submit-btn" style="margin-top:10px;">刷新切换日志</button>
-                        </div>
-
-                        <hr>
-
                         <h3>用户信息</h3>
 
                         <div class="form-group">

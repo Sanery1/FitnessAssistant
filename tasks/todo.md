@@ -181,6 +181,15 @@
 ### 2026-03-23
 - 新增并完成 Phase 9：P0 稳定性修复与验证
 
+### 2026-03-24
+- Phase 12 LLM 接口收口与负例测试已完成
+  - [x] 将 `llm-config` 和 `llm-pool` 收口到 `/_internal` 路径
+  - [x] 为内部接口增加 `X-Internal-Token` 鉴权约束
+  - [x] 前端保持仅使用 `llm-models` 与 `active-llm` 对外接口
+  - [x] 新增 API 负例测试：空 model / 不存在 model / 单模型切换
+  - [x] 完成 API 集成测试回归并通过
+  - [x] 修复 `python -m tests.run_tests` 聚合入口导入路径并完成全量回归
+
 ## Phase 9: P0 稳定性修复 ✅
 
 - [x] 修复工作流异步节点执行缺陷

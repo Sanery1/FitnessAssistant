@@ -4,9 +4,11 @@
 
 // API 基础路径
 const API_BASE = '/api';
+const CHAT_REQUEST_TIMEOUT_MS = 45000;
 
 // 当前用户 ID
 let currentUserId = 'default';
+let chatModelSelectRef = null;
 
 // DOM 元素
 const elements = {
@@ -17,8 +19,6 @@ const elements = {
     navItems: document.querySelectorAll('.nav-item'),
     pages: document.querySelectorAll('.page')
 };
-
-let llmFailoverLogsCache = [];
 
 function escapeHtml(value) {
     return String(value ?? '')
@@ -51,11 +51,18 @@ function switchPage(pageName) {
     elements.pages.forEach(page => {
         page.classList.toggle('active', page.id === `page-${pageName}`);
     });
+
+    if (pageName === 'chat' && chatModelSelectRef) {
+        loadLLMModels(chatModelSelectRef);
+    }
 }
 
 // ==================== 聊天功能 ====================
 
 function initChat() {
+    const modelSelect = document.getElementById('chat-model-select');
+    chatModelSelectRef = modelSelect;
+
     // 发送按钮
     elements.sendBtn.addEventListener('click', sendMessage);
 
@@ -81,6 +88,10 @@ function initChat() {
         elements.chatInput.style.height = 'auto';
         elements.chatInput.style.height = elements.chatInput.scrollHeight + 'px';
     });
+
+    if (modelSelect) {
+        initChatLLMSettings(modelSelect);
+    }
 }
 
 async function sendMessage() {
@@ -93,11 +104,16 @@ async function sendMessage() {
 
     // 显示加载
     const loadingEl = addMessage('assistant', '思考中...', true);
+    let timeoutId = null;
 
     try {
+        const controller = new AbortController();
+        timeoutId = setTimeout(() => controller.abort(), CHAT_REQUEST_TIMEOUT_MS);
+
         const response = await fetch(`${API_BASE}/chat/message`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
             body: JSON.stringify({
                 message: message,
                 user_id: currentUserId
@@ -117,15 +133,27 @@ async function sendMessage() {
 
     } catch (error) {
         loadingEl.remove();
+        if (error && error.name === 'AbortError') {
+            addMessage('assistant', '抱歉，响应超时，请稍后重试或切换其他模型。');
+            return;
+        }
         addMessage('assistant', '抱歉，发生了错误：' + error.message);
+    } finally {
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+        }
     }
 }
 
 function toFriendlyChatError(status, detail) {
     const text = (detail || '').toLowerCase();
 
-    if (status === 503 || text.includes('429') || text.includes('too many requests')) {
+    if (text.includes('429') || text.includes('too many requests') || text.includes('rate limit')) {
         return '当前 AI 服务较忙，请稍后重试。';
+    }
+
+    if (text.includes('暂时不可用') || text.includes('temporarily unavailable')) {
+        return '当前模型暂不可用，请切换模型后重试。';
     }
 
     if (status === 401 || text.includes('api key') || text.includes('unauthorized')) {
@@ -152,9 +180,14 @@ function addMessage(role, content, isLoading = false) {
     const contentEl = document.createElement('div');
     contentEl.className = 'message-content';
 
-    const paragraphEl = document.createElement('p');
-    paragraphEl.textContent = String(content ?? '');
-    contentEl.appendChild(paragraphEl);
+    if (role === 'assistant') {
+        contentEl.classList.add('message-markdown');
+        contentEl.innerHTML = renderAssistantMarkdown(String(content ?? ''));
+    } else {
+        const paragraphEl = document.createElement('p');
+        paragraphEl.textContent = String(content ?? '');
+        contentEl.appendChild(paragraphEl);
+    }
 
     msgEl.appendChild(avatarEl);
     msgEl.appendChild(contentEl);
@@ -167,6 +200,144 @@ function addMessage(role, content, isLoading = false) {
     elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
 
     return msgEl;
+}
+
+function renderAssistantMarkdown(rawText) {
+    const text = String(rawText || '').replace(/\r\n/g, '\n');
+    const lines = text.split('\n');
+    const htmlParts = [];
+    let i = 0;
+
+    while (i < lines.length) {
+        const current = lines[i].trim();
+
+        if (!current) {
+            i += 1;
+            continue;
+        }
+
+        if (/^---+$/.test(current)) {
+            htmlParts.push('<hr>');
+            i += 1;
+            continue;
+        }
+
+        if (current.startsWith('```')) {
+            const codeLines = [];
+            i += 1;
+            while (i < lines.length && !lines[i].trim().startsWith('```')) {
+                codeLines.push(lines[i]);
+                i += 1;
+            }
+            if (i < lines.length && lines[i].trim().startsWith('```')) {
+                i += 1;
+            }
+            htmlParts.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+            continue;
+        }
+
+        const h3 = current.match(/^###\s+(.+)$/);
+        const h2 = current.match(/^##\s+(.+)$/);
+        const h1 = current.match(/^#\s+(.+)$/);
+        if (h3) {
+            htmlParts.push(`<h4>${inlineMarkdown(h3[1])}</h4>`);
+            i += 1;
+            continue;
+        }
+        if (h2) {
+            htmlParts.push(`<h3>${inlineMarkdown(h2[1])}</h3>`);
+            i += 1;
+            continue;
+        }
+        if (h1) {
+            htmlParts.push(`<h2>${inlineMarkdown(h1[1])}</h2>`);
+            i += 1;
+            continue;
+        }
+
+        if (isTableHeader(lines, i)) {
+            const { html, nextIndex } = parseTable(lines, i);
+            htmlParts.push(html);
+            i = nextIndex;
+            continue;
+        }
+
+        if (/^[-*]\s+/.test(current)) {
+            const items = [];
+            while (i < lines.length && /^[-*]\s+/.test(lines[i].trim())) {
+                items.push(`<li>${inlineMarkdown(lines[i].trim().replace(/^[-*]\s+/, ''))}</li>`);
+                i += 1;
+            }
+            htmlParts.push(`<ul>${items.join('')}</ul>`);
+            continue;
+        }
+
+        if (/^\d+\.\s+/.test(current)) {
+            const items = [];
+            while (i < lines.length && /^\d+\.\s+/.test(lines[i].trim())) {
+                items.push(`<li>${inlineMarkdown(lines[i].trim().replace(/^\d+\.\s+/, ''))}</li>`);
+                i += 1;
+            }
+            htmlParts.push(`<ol>${items.join('')}</ol>`);
+            continue;
+        }
+
+        if (/^>\s?/.test(current)) {
+            const quoteLines = [];
+            while (i < lines.length && /^>\s?/.test(lines[i].trim())) {
+                quoteLines.push(lines[i].trim().replace(/^>\s?/, ''));
+                i += 1;
+            }
+            htmlParts.push(`<blockquote>${inlineMarkdown(quoteLines.join('\n'))}</blockquote>`);
+            continue;
+        }
+
+        htmlParts.push(`<p>${inlineMarkdown(current)}</p>`);
+        i += 1;
+    }
+
+    return htmlParts.join('') || `<p>${escapeHtml(text)}</p>`;
+}
+
+function inlineMarkdown(text) {
+    const escaped = escapeHtml(text);
+    return escaped
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+}
+
+function isTableHeader(lines, index) {
+    if (index + 1 >= lines.length) return false;
+    const line = lines[index].trim();
+    const divider = lines[index + 1].trim();
+    return line.includes('|') && /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(divider);
+}
+
+function parseTable(lines, startIndex) {
+    const headerCells = splitTableLine(lines[startIndex]);
+    let rowIndex = startIndex + 2;
+    const rows = [];
+
+    while (rowIndex < lines.length) {
+        const line = lines[rowIndex].trim();
+        if (!line || !line.includes('|')) break;
+        rows.push(splitTableLine(lines[rowIndex]));
+        rowIndex += 1;
+    }
+
+    const thead = `<thead><tr>${headerCells.map(cell => `<th>${inlineMarkdown(cell)}</th>`).join('')}</tr></thead>`;
+    const tbody = `<tbody>${rows.map(row => `<tr>${row.map(cell => `<td>${inlineMarkdown(cell)}</td>`).join('')}</tr>`).join('')}</tbody>`;
+    return { html: `<table>${thead}${tbody}</table>`, nextIndex: rowIndex };
+}
+
+function splitTableLine(line) {
+    return line
+        .trim()
+        .replace(/^\|/, '')
+        .replace(/\|$/, '')
+        .split('|')
+        .map(item => item.trim());
 }
 
 // ==================== 训练计划 ====================
@@ -396,208 +567,57 @@ function initSettings() {
     const form = document.getElementById('settings-form');
     if (!form) return;
 
-    loadLLMConfig(form);
-    loadLLMFailoverLogs();
-
-    const refreshBtn = document.getElementById('refresh-llm-logs-btn');
-    const modelFilter = document.getElementById('llm-log-model-filter');
-    const keywordInput = document.getElementById('llm-log-keyword');
-
-    if (refreshBtn) {
-        refreshBtn.addEventListener('click', () => {
-            loadLLMFailoverLogs();
-        });
-    }
-    if (modelFilter) {
-        modelFilter.addEventListener('change', () => renderLLMFailoverLogs());
-    }
-    if (keywordInput) {
-        keywordInput.addEventListener('input', () => renderLLMFailoverLogs());
-    }
-
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const formData = new FormData(form);
+        alert('设置已保存！');
+    });
+}
 
-        const payload = {
-            provider: String(formData.get('llm_provider') || 'glm').trim(),
-            base_url: String(formData.get('llm_base_url') || '').trim(),
-            model: String(formData.get('llm_model') || '').trim(),
-            api_key: String(formData.get('llm_api_key') || '').trim()
-        };
+function initChatLLMSettings(modelSelect) {
+    loadLLMModels(modelSelect);
 
-        const fallbackText = String(formData.get('llm_fallback_models') || '').trim();
-        const fallbackModels = fallbackText
-            .split(',')
-            .map(item => item.trim())
-            .filter(Boolean);
-
-        const poolConfigs = [
-            {
-                provider: payload.provider,
-                base_url: payload.base_url,
-                model: payload.model,
-                api_key: payload.api_key
-            },
-            ...fallbackModels.map(model => ({
-                provider: payload.provider,
-                base_url: payload.base_url,
-                model,
-                api_key: payload.api_key
-            }))
-        ];
+    modelSelect.addEventListener('change', async () => {
+        const selectedModel = String(modelSelect.value || '').trim();
+        if (!selectedModel) return;
 
         try {
-            const response = await fetch(`${API_BASE}/chat/llm-pool`, {
+            const response = await fetch(`${API_BASE}/chat/active-llm`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    active_index: 0,
-                    auto_fallback_enabled: true,
-                    fallback_cooldown_seconds: 120,
-                    configs: poolConfigs
-                })
+                body: JSON.stringify({ model: selectedModel })
             });
 
             const data = await response.json();
             if (!response.ok) {
-                throw new Error(String(data.detail || '保存失败'));
+                throw new Error(String(data.detail || '切换失败'));
             }
 
-            const providerEl = form.querySelector('[name="llm_provider"]');
-            const baseEl = form.querySelector('[name="llm_base_url"]');
-            const modelEl = form.querySelector('[name="llm_model"]');
-            const fallbackEl = form.querySelector('[name="llm_fallback_models"]');
-            const keyEl = form.querySelector('[name="llm_api_key"]');
-
-            if (providerEl && data.configs && data.configs.length > 0) providerEl.value = data.configs[0].provider || providerEl.value;
-            if (baseEl && data.configs && data.configs.length > 0) baseEl.value = data.configs[0].base_url || '';
-            if (modelEl && data.configs && data.configs.length > 0) modelEl.value = data.configs[0].model || '';
-            if (fallbackEl && data.configs && data.configs.length > 1) {
-                fallbackEl.value = data.configs.slice(1).map(item => item.model).join(',');
+            if (data.active_model) {
+                modelSelect.value = data.active_model;
             }
-            if (keyEl) keyEl.value = '';
-            loadLLMFailoverLogs();
-
-            alert('LLM 池配置已保存，新的对话请求将立即生效。');
         } catch (error) {
-            alert(`保存失败：${error.message}`);
+            alert(`模型切换失败：${error.message}`);
+            await loadLLMModels(modelSelect);
         }
     });
 }
 
-async function loadLLMFailoverLogs() {
-    const panel = document.getElementById('llm-log-panel');
-    if (!panel) return;
-
+async function loadLLMModels(modelSelect) {
     try {
-        const response = await fetch(`${API_BASE}/chat/llm-failover-logs?limit=20`);
+        const response = await fetch(`${API_BASE}/chat/llm-models`);
         const data = await response.json();
-        if (!response.ok || !Array.isArray(data.logs)) {
-            llmFailoverLogsCache = [];
-            panel.textContent = '暂无日志';
-            return;
-        }
+        if (!response.ok || !Array.isArray(data.models) || data.models.length === 0) return;
 
-        llmFailoverLogsCache = data.logs;
-        if (llmFailoverLogsCache.length === 0) {
-            panel.textContent = '暂无日志';
-            return;
-        }
+        modelSelect.innerHTML = '';
+        data.models.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model;
+            option.textContent = model;
+            modelSelect.appendChild(option);
+        });
 
-        refreshLLMLogFilterOptions(llmFailoverLogsCache);
-        renderLLMFailoverLogs();
-    } catch (_err) {
-        llmFailoverLogsCache = [];
-        panel.textContent = '日志加载失败';
-    }
-}
-
-function refreshLLMLogFilterOptions(logs) {
-    const modelFilter = document.getElementById('llm-log-model-filter');
-    if (!modelFilter) return;
-
-    const current = modelFilter.value;
-    const models = new Set();
-    logs.forEach(item => {
-        if (item.from_model) models.add(item.from_model);
-        if (item.to_model) models.add(item.to_model);
-    });
-
-    modelFilter.innerHTML = '<option value="">全部模型</option>';
-    Array.from(models).forEach(model => {
-        const opt = document.createElement('option');
-        opt.value = model;
-        opt.textContent = model;
-        modelFilter.appendChild(opt);
-    });
-
-    if (current && Array.from(models).includes(current)) {
-        modelFilter.value = current;
-    }
-}
-
-function renderLLMFailoverLogs() {
-    const panel = document.getElementById('llm-log-panel');
-    const modelFilter = document.getElementById('llm-log-model-filter');
-    const keywordInput = document.getElementById('llm-log-keyword');
-    if (!panel) return;
-
-    const selectedModel = (modelFilter && modelFilter.value) ? modelFilter.value : '';
-    const keyword = (keywordInput && keywordInput.value) ? keywordInput.value.trim().toLowerCase() : '';
-
-    const filtered = llmFailoverLogsCache.filter(item => {
-        if (selectedModel && item.from_model !== selectedModel && item.to_model !== selectedModel) {
-            return false;
-        }
-
-        if (!keyword) {
-            return true;
-        }
-
-        const haystack = [
-            item.event,
-            item.reason,
-            item.from_model,
-            item.to_model,
-            String(item.from_index),
-            String(item.to_index)
-        ].join(' ').toLowerCase();
-
-        return haystack.includes(keyword);
-    });
-
-    if (filtered.length === 0) {
-        panel.textContent = '暂无匹配日志';
-        return;
-    }
-
-    const lines = filtered.map(item => {
-        const ts = item.ts ? new Date(item.ts * 1000).toLocaleString() : '-';
-        const fromModel = item.from_model || '-';
-        const toModel = item.to_model || '-';
-        return `${ts} | ${item.event} | ${item.from_index}(${fromModel}) -> ${item.to_index}(${toModel}) | ${item.reason}`;
-    });
-    panel.textContent = lines.join('\n');
-}
-
-async function loadLLMConfig(form) {
-    try {
-        const response = await fetch(`${API_BASE}/chat/llm-pool`);
-        const data = await response.json();
-        if (!response.ok || !data.configs || data.configs.length === 0) return;
-
-        const providerEl = form.querySelector('[name="llm_provider"]');
-        const baseEl = form.querySelector('[name="llm_base_url"]');
-        const modelEl = form.querySelector('[name="llm_model"]');
-        const fallbackEl = form.querySelector('[name="llm_fallback_models"]');
-
-        const first = data.configs[0];
-        if (providerEl && first.provider) providerEl.value = first.provider;
-        if (baseEl && first.base_url) baseEl.value = first.base_url;
-        if (modelEl && first.model) modelEl.value = first.model;
-        if (fallbackEl) {
-            fallbackEl.value = data.configs.slice(1).map(item => item.model).join(',');
+        if (data.active_model) {
+            modelSelect.value = data.active_model;
         }
     } catch (_error) {
         // 静默失败，不阻塞页面主功能
