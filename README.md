@@ -1,5 +1,7 @@
 # Fitness AI Assistant
 
+![CI](https://github.com/Sanery1/FitnessAssistant/actions/workflows/ci.yml/badge.svg)
+
 一个基于 Claude AI 的智能健身助手，提供个性化训练计划、动作指导、营养建议等功能。
 
 ## 功能特性
@@ -26,3 +28,11 @@ pip install -r requirements.txt
 ```bash
 python -m src.main
 ```
+
+## 测试
+
+```bash
+python tests/run_tests.py
+```
+
+项目采用阶段化交付流程，每个阶段完成后会自动执行 Git 提交与 GitHub 同步。

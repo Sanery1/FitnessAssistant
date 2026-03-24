@@ -281,6 +281,26 @@
   - [x] 纳入 tests/run_tests.py
   - [x] 全量回归通过
 
+## Phase 15: CI 自动化与项目收官 ✅
+
+- [x] 建立 GitHub Actions CI
+  - [x] 安装依赖并执行 tests/run_tests.py
+  - [x] 在 push / pull_request 触发
+  - [x] 保证与当前本地测试入口一致
+
+- [x] 项目文档同步
+  - [x] README 增加 CI 状态说明
+  - [x] 记录自动同步与阶段化交付完成状态
+
+- [x] 收官验证
+  - [x] 本地全量测试通过
+  - [x] 变更已自动同步到 GitHub
+
+### 2026-03-24
+- Phase 15 已完成
+  - 新增 GitHub Actions CI（push/PR 自动运行全量测试）
+  - README 已补充 CI 状态与测试说明
+
 ### 2026-03-24
 - Phase 14 已完成
   - 新增 API 异常路径与边界测试
