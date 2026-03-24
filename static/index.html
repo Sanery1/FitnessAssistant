@@ -306,6 +306,18 @@
                             <input type="password" name="llm_api_key" placeholder="输入后仅用于当前运行时">
                         </div>
 
+                        <div class="form-group">
+                            <label>最近切换日志</label>
+                            <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+                                <select id="llm-log-model-filter" style="flex:1;min-width:180px;">
+                                    <option value="">全部模型</option>
+                                </select>
+                                <input id="llm-log-keyword" type="text" placeholder="搜索关键词" style="flex:1;min-width:180px;">
+                            </div>
+                            <div id="llm-log-panel" style="background:#f5f7fa;border:1px solid #d9e1ec;border-radius:8px;padding:10px;max-height:180px;overflow:auto;font-size:12px;line-height:1.5;white-space:pre-wrap;">暂无日志</div>
+                            <button type="button" id="refresh-llm-logs-btn" class="submit-btn" style="margin-top:10px;">刷新切换日志</button>
+                        </div>
+
                         <hr>
 
                         <h3>用户信息</h3>

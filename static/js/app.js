@@ -18,6 +18,8 @@ const elements = {
     pages: document.querySelectorAll('.page')
 };
 
+let llmFailoverLogsCache = [];
+
 function escapeHtml(value) {
     return String(value ?? '')
         .replace(/&/g, '&amp;')
@@ -395,6 +397,23 @@ function initSettings() {
     if (!form) return;
 
     loadLLMConfig(form);
+    loadLLMFailoverLogs();
+
+    const refreshBtn = document.getElementById('refresh-llm-logs-btn');
+    const modelFilter = document.getElementById('llm-log-model-filter');
+    const keywordInput = document.getElementById('llm-log-keyword');
+
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => {
+            loadLLMFailoverLogs();
+        });
+    }
+    if (modelFilter) {
+        modelFilter.addEventListener('change', () => renderLLMFailoverLogs());
+    }
+    if (keywordInput) {
+        keywordInput.addEventListener('input', () => renderLLMFailoverLogs());
+    }
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -458,12 +477,108 @@ function initSettings() {
                 fallbackEl.value = data.configs.slice(1).map(item => item.model).join(',');
             }
             if (keyEl) keyEl.value = '';
+            loadLLMFailoverLogs();
 
             alert('LLM 池配置已保存，新的对话请求将立即生效。');
         } catch (error) {
             alert(`保存失败：${error.message}`);
         }
     });
+}
+
+async function loadLLMFailoverLogs() {
+    const panel = document.getElementById('llm-log-panel');
+    if (!panel) return;
+
+    try {
+        const response = await fetch(`${API_BASE}/chat/llm-failover-logs?limit=20`);
+        const data = await response.json();
+        if (!response.ok || !Array.isArray(data.logs)) {
+            llmFailoverLogsCache = [];
+            panel.textContent = '暂无日志';
+            return;
+        }
+
+        llmFailoverLogsCache = data.logs;
+        if (llmFailoverLogsCache.length === 0) {
+            panel.textContent = '暂无日志';
+            return;
+        }
+
+        refreshLLMLogFilterOptions(llmFailoverLogsCache);
+        renderLLMFailoverLogs();
+    } catch (_err) {
+        llmFailoverLogsCache = [];
+        panel.textContent = '日志加载失败';
+    }
+}
+
+function refreshLLMLogFilterOptions(logs) {
+    const modelFilter = document.getElementById('llm-log-model-filter');
+    if (!modelFilter) return;
+
+    const current = modelFilter.value;
+    const models = new Set();
+    logs.forEach(item => {
+        if (item.from_model) models.add(item.from_model);
+        if (item.to_model) models.add(item.to_model);
+    });
+
+    modelFilter.innerHTML = '<option value="">全部模型</option>';
+    Array.from(models).forEach(model => {
+        const opt = document.createElement('option');
+        opt.value = model;
+        opt.textContent = model;
+        modelFilter.appendChild(opt);
+    });
+
+    if (current && Array.from(models).includes(current)) {
+        modelFilter.value = current;
+    }
+}
+
+function renderLLMFailoverLogs() {
+    const panel = document.getElementById('llm-log-panel');
+    const modelFilter = document.getElementById('llm-log-model-filter');
+    const keywordInput = document.getElementById('llm-log-keyword');
+    if (!panel) return;
+
+    const selectedModel = (modelFilter && modelFilter.value) ? modelFilter.value : '';
+    const keyword = (keywordInput && keywordInput.value) ? keywordInput.value.trim().toLowerCase() : '';
+
+    const filtered = llmFailoverLogsCache.filter(item => {
+        if (selectedModel && item.from_model !== selectedModel && item.to_model !== selectedModel) {
+            return false;
+        }
+
+        if (!keyword) {
+            return true;
+        }
+
+        const haystack = [
+            item.event,
+            item.reason,
+            item.from_model,
+            item.to_model,
+            String(item.from_index),
+            String(item.to_index)
+        ].join(' ').toLowerCase();
+
+        return haystack.includes(keyword);
+    });
+
+    if (filtered.length === 0) {
+        panel.textContent = '暂无匹配日志';
+        return;
+    }
+
+    const lines = filtered.map(item => {
+        const ts = item.ts ? new Date(item.ts * 1000).toLocaleString() : '-';
+        const fromModel = item.from_model || '-';
+        const toModel = item.to_model || '-';
+        return `${ts} | ${item.event} | ${item.from_index}(${fromModel}) -> ${item.to_index}(${toModel}) | ${item.reason}`;
+    });
+    panel.textContent = lines.join('\n');
 }
 
 async function loadLLMConfig(form) {

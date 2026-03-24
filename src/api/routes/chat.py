@@ -45,11 +45,19 @@ def _failover_log_path() -> Path:
 
 
 def _append_failover_log(event: str, from_index: int, to_index: int, reason: str) -> None:
+    def _model_by_index(index: int) -> Optional[str]:
+        if _runtime_llm_pool and 0 <= index < len(_runtime_llm_pool):
+            return _runtime_llm_pool[index].get("model")
+        current = _current_llm_entry()
+        return current.get("model") or settings.llm_model
+
     record = {
         "ts": int(time.time()),
         "event": event,
         "from_index": from_index,
         "to_index": to_index,
+        "from_model": _model_by_index(from_index),
+        "to_model": _model_by_index(to_index),
         "reason": reason,
     }
     with _failover_log_path().open("a", encoding="utf-8") as f:
