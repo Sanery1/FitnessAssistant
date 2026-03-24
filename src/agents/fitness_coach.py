@@ -4,8 +4,10 @@ Fitness Coach Agent
 健身教练 Agent，负责训练计划生成、动作指导等。
 """
 from typing import Any, Dict, List, Optional
+import re
 from .base import BaseAgent, AgentRole, AgentResponse, ToolCall, ToolExecutor
 from ..tools import registry as tool_registry
+from ..services.llm_client import extract_compat_tool_calls
 
 
 SYSTEM_PROMPT = """你是一位专业的健身教练，拥有丰富的健身知识和教学经验。
@@ -58,6 +60,12 @@ class FitnessCoachAgent(BaseAgent):
         # 添加用户消息
         self.add_message("user", message)
 
+        direct_plan = self._try_direct_workout_plan(message)
+        if direct_plan is not None:
+            self.add_message("assistant", direct_plan)
+            self.state = "done"
+            return AgentResponse(content=direct_plan, done=True)
+
         # 构建上下文
         user_context = self._build_context(context)
 
@@ -79,9 +87,26 @@ class FitnessCoachAgent(BaseAgent):
                         message=messages[-1]["content"],
                         system=self.get_system_prompt() + user_context
                     )
-                    self.add_message("assistant", fallback_content)
+                    compat = extract_compat_tool_calls(fallback_content)
+                    if compat["tool_calls"]:
+                        tool_results = self._handle_tool_calls(compat["tool_calls"])
+                        for tc, result in zip(compat["tool_calls"], tool_results):
+                            self.add_message("assistant", compat["content"] or "我来帮你处理这个请求。")
+                            self.add_message("system", f"工具 {tc['name']} 执行结果: {result}")
+
+                        final_response = self.llm.chat(
+                            message="请根据工具执行结果，给用户一个完整回复。不要输出任何 XML 或 tool_call 标签。",
+                            system=self.get_system_prompt() + user_context
+                        )
+                        clean_content = extract_compat_tool_calls(final_response)["content"] or final_response
+                        self.add_message("assistant", clean_content)
+                        self.state = "done"
+                        return AgentResponse(content=clean_content, done=True)
+
+                    clean_fallback = compat["content"] or fallback_content
+                    self.add_message("assistant", clean_fallback)
                     self.state = "done"
-                    return AgentResponse(content=fallback_content, done=True)
+                    return AgentResponse(content=clean_fallback, done=True)
                 raise
 
             content = response.get("content", "")
@@ -104,6 +129,7 @@ class FitnessCoachAgent(BaseAgent):
                 content = final_response
 
             # 添加助手回复
+            content = extract_compat_tool_calls(content)["content"] or content
             self.add_message("assistant", content)
 
             self.state = "done"
@@ -112,6 +138,56 @@ class FitnessCoachAgent(BaseAgent):
         except Exception as e:
             self.state = "error"
             return AgentResponse(content=f"处理出错: {str(e)}", done=True)
+
+    def _try_direct_workout_plan(self, message: str) -> Optional[str]:
+        text = (message or "").lower()
+        trigger_words = ["计划", "我的计划", "计划呢", "增肌", "减脂", "塑形", "训练"]
+        if not any(word in text for word in trigger_words):
+            return None
+
+        goal = "增肌" if "增肌" in text else ("减脂" if "减脂" in text else None)
+        if goal is None:
+            return None
+
+        days = 4
+        m_days_range = re.search(r"(\d)\s*[-~到至]\s*(\d)\s*天", text)
+        m_days_single = re.search(r"每周\s*(\d)\s*天", text)
+        if m_days_range:
+            days = max(2, min(6, int(m_days_range.group(1))))
+        elif m_days_single:
+            days = max(2, min(6, int(m_days_single.group(1))))
+        elif "每天" in text:
+            days = 6
+
+        level = "中级" if days >= 5 else "初学者"
+        minutes = 60 if days >= 5 else 45
+
+        result = tool_registry.execute(
+            "generate_workout_plan",
+            goal=goal,
+            level=level,
+            days_per_week=days,
+            minutes_per_day=minutes,
+        )
+        if not result.success:
+            return None
+
+        plan = result.data
+        sessions = plan.get("sessions", [])
+        lines = [
+            f"已根据你的信息生成{goal}训练计划：",
+            f"- 计划名称：{plan.get('name', goal + '训练计划')}",
+            f"- 每周训练：{plan.get('sessions_per_week', days)} 天",
+            f"- 建议单次时长：{minutes} 分钟",
+            "",
+            "本周安排（示例）：",
+        ]
+        for session in sessions[:min(5, len(sessions))]:
+            lines.append(f"- 第{session.get('day')}天：{session.get('name')}（{session.get('duration_minutes')} 分钟）")
+
+        lines.append("")
+        lines.append("如果你愿意，我下一条可以把每天的动作、组数和强度写成可直接照做的打卡版。")
+        return "\n".join(lines)
 
     def _build_context(self, context: Dict = None) -> str:
         """构建上下文信息"""

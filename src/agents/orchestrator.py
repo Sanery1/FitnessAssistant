@@ -4,6 +4,7 @@ Orchestrator Agent
 主控编排 Agent，负责协调其他 Agent，处理用户请求路由。
 """
 from typing import Any, Dict, List, Optional
+import re
 from enum import Enum
 from .base import BaseAgent, AgentRole, AgentResponse
 from .fitness_coach import FitnessCoachAgent
@@ -68,7 +69,7 @@ class OrchestratorAgent(BaseAgent):
     def get_system_prompt(self) -> str:
         return SYSTEM_PROMPT
 
-    def classify_query(self, message: str) -> QueryType:
+    def classify_query(self, message: str, context: Optional[Dict] = None) -> QueryType:
         """分类用户查询"""
         message_lower = message.lower()
 
@@ -83,6 +84,12 @@ class OrchestratorAgent(BaseAgent):
         is_nutrition = any(kw in message_lower for kw in nutrition_keywords)
         is_data = any(kw in message_lower for kw in data_keywords)
 
+        # 当消息主要是“补充身体参数”时，优先继承最近一次明确意图，避免会话跑偏。
+        if self._looks_like_profile_update(message_lower):
+            inherited = self._infer_query_type_from_context(context)
+            if inherited is not None:
+                return inherited
+
         if sum([is_workout, is_nutrition, is_data]) > 1:
             return QueryType.MULTI
         elif is_workout:
@@ -94,13 +101,41 @@ class OrchestratorAgent(BaseAgent):
         else:
             return QueryType.GENERAL
 
+    def _looks_like_profile_update(self, message_lower: str) -> bool:
+        has_age = bool(re.search(r"\d+\s*岁", message_lower))
+        has_weight = bool(re.search(r"\d+(?:\.\d+)?\s*kg", message_lower))
+        has_height = bool(re.search(r"\d+(?:\.\d+)?\s*cm", message_lower))
+        has_gender = ("男" in message_lower) or ("女" in message_lower)
+        has_days = bool(re.search(r"\d+\s*[-~到至]?\s*\d*\s*天", message_lower))
+        return sum([has_age, has_weight, has_height, has_gender, has_days]) >= 2
+
+    def _infer_query_type_from_context(self, context: Optional[Dict]) -> Optional[QueryType]:
+        if not context:
+            return None
+        session = context.get("session_context") or {}
+        messages = session.get("messages") or []
+        for item in reversed(messages):
+            if item.get("role") != "user":
+                continue
+            text = (item.get("content") or "").lower()
+            if not text:
+                continue
+
+            if any(k in text for k in ["热量", "营养", "饮食", "卡路里", "宏量", "蛋白质", "减脂餐", "增肌餐"]):
+                return QueryType.NUTRITION
+            if any(k in text for k in ["训练", "计划", "动作", "健身", "增肌", "减脂", "塑形", "我的计划", "计划呢"]):
+                return QueryType.WORKOUT
+            if any(k in text for k in ["数据", "进度", "趋势", "体脂", "bmi"]):
+                return QueryType.DATA
+        return None
+
     def process(self, message: str, context: Dict = None) -> AgentResponse:
         """处理用户消息 - 路由到合适的专家"""
         self.state = "thinking"
         self.add_message("user", message)
 
         # 分类查询
-        query_type = self.classify_query(message)
+        query_type = self.classify_query(message, context)
 
         # 路由到专家
         expert_response = self._route_to_expert(query_type, message, context)

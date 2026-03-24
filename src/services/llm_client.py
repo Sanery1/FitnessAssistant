@@ -9,6 +9,7 @@ LLM Client Abstraction Layer
 import asyncio
 import json
 import os
+import re
 import httpx
 from abc import ABC, abstractmethod
 from typing import Optional, List, Dict, Any, Generator
@@ -36,6 +37,130 @@ def normalize_tool_arguments(arguments: Any) -> Dict[str, Any]:
         return data
 
     raise ValueError("工具参数类型无效，必须为 dict 或 JSON 字符串")
+
+
+def _coerce_parameter_value(raw: str) -> Any:
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    lower = text.lower()
+    if lower in {"true", "false"}:
+        return lower == "true"
+    if re.fullmatch(r"-?\d+", text):
+        try:
+            return int(text)
+        except Exception:
+            return text
+    if re.fullmatch(r"-?\d+\.\d+", text):
+        try:
+            return float(text)
+        except Exception:
+            return text
+    return text
+
+
+def extract_compat_tool_calls(content: str) -> Dict[str, Any]:
+    """Extract tool calls from compatibility text formats (e.g. minimax XML-like tags)."""
+    original = content or ""
+    blocks = re.findall(r"<invoke\s+name=\"([^\"]+)\">(.*?)</invoke>", original, flags=re.DOTALL)
+    tool_calls: List[Dict[str, Any]] = []
+
+    for idx, (name, body) in enumerate(blocks):
+        params: Dict[str, Any] = {}
+        pairs = re.findall(r"<parameter\s+name=\"([^\"]+)\">(.*?)</parameter>", body, flags=re.DOTALL)
+        for key, value in pairs:
+            params[key] = _coerce_parameter_value(value)
+
+        tool_calls.append(
+            {
+                "id": f"compat_call_{idx + 1}",
+                "name": name.strip(),
+                "arguments": params,
+            }
+        )
+
+    if not tool_calls:
+        tool_code_blocks = re.findall(
+            r"<tool_code>\s*\{(.*?)\}\s*</tool_code>",
+            original,
+            flags=re.DOTALL,
+        )
+        for idx, block in enumerate(tool_code_blocks):
+            name_match = re.search(r"tool\s*=>\s*'([^']+)'", block)
+            args_match = re.search(r"args\s*=>\s*'(.*?)'", block, flags=re.DOTALL)
+            if not name_match:
+                continue
+
+            args_text = args_match.group(1) if args_match else ""
+            args_text = args_text.replace("\\n", "\n")
+            params: Dict[str, Any] = {}
+            for key, value in re.findall(r"<([a-zA-Z_][a-zA-Z0-9_]*)>(.*?)</\1>", args_text, flags=re.DOTALL):
+                params[key] = _coerce_parameter_value(value)
+
+            tool_calls.append(
+                {
+                    "id": f"compat_tool_code_{idx + 1}",
+                    "name": name_match.group(1).strip(),
+                    "arguments": params,
+                }
+            )
+
+    if not tool_calls:
+        tool_blocks = re.findall(
+            r"<tool\s+name=\"([^\"]+)\">(.*?)</tool>",
+            original,
+            flags=re.DOTALL,
+        )
+        for idx, (name, body) in enumerate(tool_blocks):
+            params: Dict[str, Any] = {}
+            for key, value in re.findall(r"<param\s+name=\"([^\"]+)\">(.*?)</param>", body, flags=re.DOTALL):
+                params[key] = _coerce_parameter_value(value)
+            tool_calls.append(
+                {
+                    "id": f"compat_tool_block_{idx + 1}",
+                    "name": name.strip(),
+                    "arguments": params,
+                }
+            )
+
+    if not tool_calls:
+        function_call_blocks = re.findall(
+            r"<FunctionCall>(.*?)</FunctionCall>",
+            original,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+        for idx, block in enumerate(function_call_blocks):
+            name_match = re.search(r"tool\s*:\s*\"([^\"]+)\"", block)
+            if not name_match:
+                continue
+
+            params: Dict[str, Any] = {}
+            args_match = re.search(r"args\s*:\s*\{(.*?)\}", block, flags=re.DOTALL)
+            if args_match:
+                args_body = args_match.group(1)
+                for key, value in re.findall(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=|:)\s*([^\n,}]+)", args_body):
+                    params[key] = _coerce_parameter_value(value.strip().strip('"').strip("'"))
+
+            tool_calls.append(
+                {
+                    "id": f"compat_function_call_{idx + 1}",
+                    "name": name_match.group(1).strip(),
+                    "arguments": params,
+                }
+            )
+
+    # Remove wrapper tags to avoid leaking raw tool markup to UI.
+    cleaned = re.sub(r"<minimax:tool_call>.*?</minimax:tool_call>", "", original, flags=re.DOTALL)
+    cleaned = re.sub(r"<tool_code>.*?</tool_code>", "", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"<tool_call>.*?</tool_call>", "", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"<FunctionCall>.*?</FunctionCall>", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
+    cleaned = re.sub(r"<invoke\s+name=\"[^\"]+\">.*?</invoke>", "", cleaned, flags=re.DOTALL)
+    cleaned = cleaned.strip()
+
+    return {
+        "content": cleaned,
+        "tool_calls": tool_calls,
+    }
 
 
 class LLMProvider(str, Enum):
@@ -188,6 +313,12 @@ class GLMClient(BaseLLMClient):
                     "arguments": normalize_tool_arguments(tool_call["function"].get("arguments", {}))
                 })
 
+        if not result["tool_calls"] and result["content"]:
+            compat = extract_compat_tool_calls(result["content"])
+            if compat["tool_calls"]:
+                result["tool_calls"] = compat["tool_calls"]
+                result["content"] = compat["content"]
+
         return result
 
     def stream_chat(
@@ -328,7 +459,7 @@ class OpenAIClient(BaseLLMClient):
         response.raise_for_status()
         message = response.json()["choices"][0]["message"]
 
-        return {
+        result = {
             "content": message.get("content", ""),
             "tool_calls": [
                 {
@@ -339,6 +470,14 @@ class OpenAIClient(BaseLLMClient):
                 for tc in message.get("tool_calls", [])
             ]
         }
+
+        if not result["tool_calls"] and result["content"]:
+            compat = extract_compat_tool_calls(result["content"])
+            if compat["tool_calls"]:
+                result["tool_calls"] = compat["tool_calls"]
+                result["content"] = compat["content"]
+
+        return result
 
     def stream_chat(
         self,

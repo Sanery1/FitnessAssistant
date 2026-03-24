@@ -3,6 +3,7 @@ FastAPI Routes - Chat
 """
 import asyncio
 import time
+import re
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -247,6 +248,38 @@ def _contains_agent_failure(content: str) -> bool:
     return any(marker in text for marker in markers)
 
 
+def _clean_model_artifacts(content: str) -> str:
+    text = content or ""
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    return text.strip()
+
+
+def _maybe_answer_follow_up_from_memory(message: str, memory: MemoryManager) -> Optional[str]:
+    text = (message or "").strip().lower()
+    if not text:
+        return None
+
+    follow_up_markers = ["我的计划", "计划呢", "计算好了吗", "算好了吗", "结果呢", "好了没"]
+    if not any(marker in text for marker in follow_up_markers):
+        return None
+
+    conv = memory.get_conversation(limit=20)
+    for item in reversed(conv):
+        if item.get("role") != "assistant":
+            continue
+        content = _clean_model_artifacts(item.get("content") or "")
+        if not content:
+            continue
+
+        if content.startswith("已为你计算/生成，结果如下："):
+            content = content.replace("已为你计算/生成，结果如下：", "", 1).strip()
+
+        if any(k in content for k in ["训练计划", "每日目标热量", "BMR", "TDEE", "建议营养分配"]):
+            return f"已为你计算/生成，结果如下：\n\n{content[:1800]}"
+
+    return None
+
+
 def _current_llm_entry() -> Dict[str, Optional[str]]:
     if _runtime_llm_pool:
         index = min(max(_active_llm_index, 0), len(_runtime_llm_pool) - 1)
@@ -393,6 +426,13 @@ async def chat_message(request: ChatRequest):
         orchestrator = get_orchestrator(user_id)
         memory = get_memory(user_id)
 
+        # 对“我的计划呢/计算好了吗”等追问优先回放上次结果，避免上下文丢失感。
+        follow_up = _maybe_answer_follow_up_from_memory(request.message, memory)
+        if follow_up:
+            memory.add_message("user", request.message)
+            memory.add_message("assistant", follow_up)
+            return ChatResponse(content=follow_up, user_id=user_id, done=True)
+
         # 获取用户上下文
         user_context = memory.get_user_context(user_id)
 
@@ -417,6 +457,9 @@ async def chat_message(request: ChatRequest):
 
             if isinstance(response.content, str) and _contains_agent_failure(response.content):
                 raise HTTPException(status_code=503, detail=_friendly_llm_error(response.content))
+
+        if isinstance(response.content, str):
+            response.content = _clean_model_artifacts(response.content)
 
         # 保存对话
         memory.add_message("user", request.message)
